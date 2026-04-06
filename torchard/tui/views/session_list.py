@@ -170,11 +170,7 @@ class SessionListScreen(Screen):
                     # Claude shows up as a version number (e.g. 2.1.89)
                     is_claude = bool(cmd and re.match(r"^\d+\.\d+\.\d+", cmd))
                     if is_claude:
-                        claude_id = _get_claude_session_id(win.get("pane_pid", ""))
-                        if claude_id:
-                            cmd_display = f"[#E87B35]✦ claude[/#E87B35] [dim]{claude_id[:8]}[/dim]"
-                        else:
-                            cmd_display = "[#E87B35]✦ claude[/#E87B35]"
+                        cmd_display = "[#E87B35]✦ claude[/#E87B35]"
                     elif cmd and cmd != "zsh":
                         cmd_display = f"[italic]{cmd}[/italic]"
                     else:
