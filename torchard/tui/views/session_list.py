@@ -10,7 +10,7 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Static
+from textual.widgets import DataTable, Footer, Input, Static
 from textual.containers import Vertical
 
 from torchard.core import tmux
@@ -41,6 +41,8 @@ _HELP_TEXT = """\
   [#00aaff]a[/#00aaff]         Adopt unmanaged session
   [#00aaff]c[/#00aaff]         Cleanup stale worktrees
   [#00aaff]j/k[/#00aaff]       Navigate up/down
+  [#00aaff]/[/#00aaff]         Filter sessions
+  [#00aaff]x[/#00aaff]         Kill tab (on expanded tab)
   [#00aaff]q[/#00aaff]         Quit
 
 [bold]Cleanup View[/bold]
@@ -91,13 +93,15 @@ class SessionListScreen(Screen):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        Binding("escape", "quit", "Quit", show=False),
+        Binding("escape", "escape_pressed", "Quit", show=False),
+        Binding("slash", "start_filter", "/Filter", show=True),
         Binding("j,down", "cursor_down", "Down", show=False),
         Binding("k,up", "cursor_up", "Up", show=False),
         Binding("enter", "select", "Switch"),
         Binding("tab", "toggle_expand", "Expand"),
         Binding("n", "new_session", "New"),
         Binding("w", "new_tab", "Tab"),
+        Binding("x", "kill_window", "Kill tab", show=False),
         Binding("d", "delete_session", "Delete"),
         Binding("r", "rename", "Rename"),
         Binding("b", "edit_branch", "Branch"),
@@ -113,8 +117,10 @@ class SessionListScreen(Screen):
         self._sessions: list[dict] = []
         self._repos: dict = {}
         self._expanded: set[str] = set()  # session row keys that are expanded
+        self._filter: str = ""
 
     def compose(self) -> ComposeResult:
+        yield Input(placeholder="Type to filter…", id="session-filter", classes="hidden")
         yield DataTable(id="session-table", cursor_type="row", zebra_stripes=False)
         yield Footer()
 
@@ -123,6 +129,41 @@ class SessionListScreen(Screen):
         table.add_columns("Session", "Repo", "Base Branch", "Windows", "")
         self._refresh_table()
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "session-filter":
+            self._filter = event.value.lower()
+            self._refresh_table()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "session-filter":
+            # Dismiss filter, keep the filter text active
+            self._dismiss_filter()
+
+    def action_start_filter(self) -> None:
+        fi = self.query_one("#session-filter", Input)
+        fi.remove_class("hidden")
+        fi.value = ""
+        fi.focus()
+
+    def _dismiss_filter(self) -> None:
+        fi = self.query_one("#session-filter", Input)
+        if not fi.value:
+            fi.add_class("hidden")
+            self._filter = ""
+            self._refresh_table()
+        self.query_one(DataTable).focus()
+
+    def action_escape_pressed(self) -> None:
+        fi = self.query_one("#session-filter", Input)
+        if fi.has_focus or (not fi.has_class("hidden") and fi.value):
+            fi.value = ""
+            fi.add_class("hidden")
+            self._filter = ""
+            self._refresh_table()
+            self.query_one(DataTable).focus()
+            return
+        self.app.exit()
+
     def on_screen_resume(self) -> None:
         self._refresh_table()
 
@@ -130,10 +171,24 @@ class SessionListScreen(Screen):
         self._repos = {r.id: r for r in get_repos(self._manager._conn)}
         self._sessions = self._manager.list_sessions()
 
+        # Sort: attached first, then live, then dead
+        self._sessions.sort(key=lambda s: (
+            0 if s["attached"] else 1 if s["live"] else 2,
+            s["name"].lower(),
+        ))
+
         table = self.query_one(DataTable)
         table.clear()
 
         for session in self._sessions:
+            # Filter
+            if self._filter:
+                name_match = self._filter in session["name"].lower()
+                repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
+                repo_match = repo and self._filter in repo.name.lower()
+                branch_match = session["base_branch"] and self._filter in session["base_branch"].lower()
+                if not (name_match or repo_match or branch_match):
+                    continue
             repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
             repo_name = repo.name if repo else "-"
             base_branch = session["base_branch"] or "-"
@@ -335,6 +390,28 @@ class SessionListScreen(Screen):
         if session is None or session["managed"]:
             return
         self.app.push_screen(AdoptSessionScreen(self._manager, session["name"]))
+
+    def action_kill_window(self) -> None:
+        row_key = self._current_row_key()
+        if row_key is None or not row_key.startswith("win:"):
+            return
+        parts = row_key.split(":", 2)
+        session_name = parts[1]
+        window_index = int(parts[2])
+
+        def on_confirm(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            try:
+                tmux.kill_window(session_name, window_index)
+            except tmux.TmuxError:
+                pass
+            self._refresh_table()
+
+        self.app.push_screen(
+            ConfirmModal(f"Kill tab {window_index} in '{session_name}'?", "This will close the window and any processes in it."),
+            on_confirm,
+        )
 
     def action_delete_session(self) -> None:
         session = self._current_session()

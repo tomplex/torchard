@@ -133,6 +133,15 @@ def list_windows(session_name: str) -> list[dict]:
     return windows
 
 
+def kill_window(session_name: str, window_index: int) -> None:
+    """Kill a specific window in a session."""
+    result = _run(["tmux", "kill-window", "-t", f"{session_name}:{window_index}"])
+    if result.returncode != 0:
+        raise TmuxError(
+            f"Failed to kill window {window_index} in '{session_name}': {result.stderr.strip()}"
+        )
+
+
 def kill_session(session_name: str) -> None:
     """Kill the named tmux session."""
     result = _run(["tmux", "kill-session", "-t", session_name])

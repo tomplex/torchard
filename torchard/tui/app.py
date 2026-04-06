@@ -12,8 +12,16 @@ class TorchardApp(App):
     """Torchard TUI — tmux session and worktree manager."""
 
     CSS = """
+    .hidden {
+        display: none;
+    }
     Screen {
         background: #1a1a2e;
+    }
+    #session-filter {
+        dock: top;
+        margin: 0 1;
+        height: 3;
     }
     DataTable {
         background: #1a1a2e;
