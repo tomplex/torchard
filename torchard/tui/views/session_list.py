@@ -12,6 +12,7 @@ from torchard.core import tmux
 from torchard.core.db import get_repos
 from torchard.core.manager import Manager
 from torchard.tui.views.cleanup import CleanupScreen
+from torchard.tui.views.new_session import NewSessionScreen
 from torchard.tui.views.new_tab import NewTabScreen
 
 
@@ -149,7 +150,7 @@ class SessionListScreen(Screen):
         self.app.exit()
 
     def action_new_session(self) -> None:
-        self.app.push_screen(PlaceholderScreen("New Session"))
+        self.app.push_screen(NewSessionScreen(self._manager))
 
     def action_new_tab(self) -> None:
         table = self.query_one(DataTable)
