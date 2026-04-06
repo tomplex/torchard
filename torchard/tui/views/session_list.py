@@ -20,48 +20,60 @@ from torchard.tui.views.new_tab import NewTabScreen
 from torchard.tui.views.rename_session import RenameSessionScreen
 
 
-class PlaceholderScreen(Screen):
-    """Generic not-yet-implemented placeholder screen."""
+_HELP_TEXT = """\
+[bold #00aaff]torchard[/bold #00aaff] — tmux session & worktree manager
 
-    BINDINGS = [Binding("escape", "dismiss", "Back")]
+[bold]Session List[/bold]
+  [#00aaff]enter[/#00aaff]     Switch to session
+  [#00aaff]n[/#00aaff]         New managed session
+  [#00aaff]w[/#00aaff]         New worktree tab in session
+  [#00aaff]d[/#00aaff]         Delete session
+  [#00aaff]r[/#00aaff]         Rename session
+  [#00aaff]b[/#00aaff]         Change base branch
+  [#00aaff]a[/#00aaff]         Adopt unmanaged session
+  [#00aaff]c[/#00aaff]         Cleanup stale worktrees
+  [#00aaff]j/k[/#00aaff]       Navigate up/down
+  [#00aaff]q[/#00aaff]         Quit
 
-    def __init__(self, title: str) -> None:
-        super().__init__()
-        self._title = title
+[bold]Cleanup View[/bold]
+  [#00aaff]space/enter[/#00aaff]  Toggle selection
+  [#00aaff]a[/#00aaff]           Select all
+  [#00aaff]d[/#00aaff]           Delete selected
+  [#00aaff]escape[/#00aaff]      Back
+
+[dim]Press Escape to close this help.[/dim]\
+"""
+
+
+class HelpScreen(Screen):
+    """Keybind reference."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("q", "dismiss", "Close", show=False),
+    ]
 
     def compose(self) -> ComposeResult:
-        yield Vertical(
-            Static(f"[bold]{self._title}[/bold]", id="placeholder-title"),
-            Static("Not implemented yet", id="placeholder-msg"),
-            Static("Press [bold]Escape[/bold] to go back", id="placeholder-hint"),
-            id="placeholder-container",
-        )
+        with Vertical(id="help-container"):
+            yield Static(_HELP_TEXT, id="help-text")
+        yield Footer()
 
     def action_dismiss(self) -> None:
         self.app.pop_screen()
 
     DEFAULT_CSS = """
-    PlaceholderScreen {
+    HelpScreen {
         align: center middle;
     }
-    #placeholder-container {
-        width: auto;
+    #help-container {
+        width: 50;
         height: auto;
-        align: center middle;
-        padding: 2 4;
+        border: solid #00aaff;
+        padding: 1 2;
+        background: #16213e;
     }
-    #placeholder-title {
-        text-align: center;
-        color: $accent;
-        margin-bottom: 1;
-    }
-    #placeholder-msg {
-        text-align: center;
-    }
-    #placeholder-hint {
-        text-align: center;
-        color: $text-muted;
-        margin-top: 1;
+    #help-text {
+        color: #e0e0e0;
     }
     """
 
@@ -263,7 +275,7 @@ class SessionListScreen(Screen):
         self.app.push_screen(CleanupScreen(self._manager))
 
     def action_help(self) -> None:
-        self.app.push_screen(PlaceholderScreen("Help"))
+        self.app.push_screen(HelpScreen())
 
 
 def _truncate(text: str, max_len: int) -> str:

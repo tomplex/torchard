@@ -62,19 +62,13 @@ class CleanupScreen(Screen):
                 self._session_names[wt.id] = "Unattached"
             self._worktrees[str(wt.id)] = wt
 
-        # Get stale worktrees
-        stale = self._manager.get_stale_worktrees()
-        self._stale_ids = {wt.id for wt in stale if wt.id is not None}
-
-        # Build table
+        # Build table immediately (staleness checked in background)
         table = self.query_one(DataTable)
         table.add_columns("", "Branch", "Session", "Path", "Status")
 
-        # Sort: stale first, then by session name
         sorted_worktrees = sorted(
             all_worktrees,
             key=lambda w: (
-                0 if (w.id is not None and w.id in self._stale_ids) else 1,
                 self._session_names.get(w.id, "Unattached") if w.id is not None else "Unattached",
                 w.branch,
             ),
@@ -84,22 +78,39 @@ class CleanupScreen(Screen):
             if wt.id is None:
                 continue
             key = str(wt.id)
-            is_stale = wt.id in self._stale_ids
             session_label = self._session_names.get(wt.id, "Unattached")
-            status = _make_status(wt, is_stale)
-            branch_display = f"[yellow]{wt.branch}[/yellow]" if is_stale else wt.branch
             table.add_row(
                 "\\[ ]",
-                branch_display,
+                wt.branch,
                 session_label,
                 _truncate(wt.path, 50),
-                status,
+                "[dim]checking…[/dim]",
                 key=key,
             )
 
         if all_worktrees:
             table.move_cursor(row=0)
 
+        self._refresh_status()
+
+        # Check staleness in background
+        self.run_worker(self._check_staleness, thread=True)
+
+    def _check_staleness(self) -> None:
+        stale = self._manager.get_stale_worktrees()
+        self._stale_ids = {wt.id for wt in stale if wt.id is not None}
+        self.call_from_thread(self._apply_stale_status)
+
+    def _apply_stale_status(self) -> None:
+        table = self.query_one(DataTable)
+        status_col_key = table.ordered_columns[4].key
+        branch_col_key = table.ordered_columns[1].key
+        for row_key, wt in self._worktrees.items():
+            is_stale = wt.id in self._stale_ids
+            status = _make_status(wt, is_stale)
+            table.update_cell(row_key, status_col_key, status)
+            if is_stale:
+                table.update_cell(row_key, branch_col_key, f"[yellow]{wt.branch}[/yellow]")
         self._refresh_status()
 
     def _refresh_status(self) -> None:
