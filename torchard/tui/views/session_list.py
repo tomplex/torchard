@@ -130,7 +130,7 @@ class SessionListScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("Session", "Repo", "Branch", "Base")
+        table.add_columns("Session", "Repo", "Branch")
         self._refresh_table()
         table.focus()
 
@@ -221,11 +221,15 @@ class SessionListScreen(Screen):
                 name_display = f"[green]{name_display}[/green]"
             win_display = f" [dim]({windows})[/dim]" if windows != "-" else ""
 
+            if branch == base or branch == "-":
+                branch_display = branch
+            else:
+                branch_display = f"{base} → {branch}"
+
             table.add_row(
                 f"{dot} {expand} {name_display}{win_display}",
                 _truncate(repo_name, 20),
-                _truncate(branch, 25),
-                base,
+                branch_display,
                 key=row_key,
             )
 
@@ -259,7 +263,6 @@ class SessionListScreen(Screen):
                         f"      [dim]{prefix}[/dim] [dim]{win['name']}[/dim]",
                         col_cmd,
                         col_detail,
-                        "",
                         key=f"win:{session['name']}:{win['index']}",
                     )
 
