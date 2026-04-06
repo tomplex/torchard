@@ -1,8 +1,8 @@
 # torchard
 
-tmux session and git worktree manager. Replaces the grab-bag of shell scripts I was using to manage parallel development across repos and feature branches.
+tmux session and git worktree manager. A TUI (built with [textual](https://github.com/Textualize/textual)) for managing parallel development across repos and feature branches.
 
-The core idea: each tmux session is bound to a repo and branch. New tabs within a session automatically create worktrees. A TUI (built with [textual](https://github.com/Textualize/textual)) handles creation, navigation and cleanup - replacing the old fzf session picker, worktree picker and various one-off scripts.
+Each tmux session is bound to a repo and branch. New tabs within a session automatically create worktrees. torchard handles session creation, navigation, worktree lifecycle and cleanup from a single interface.
 
 ## Install
 
