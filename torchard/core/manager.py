@@ -272,12 +272,14 @@ class Manager:
             known_session_names.add(ts["name"])
 
     def list_sessions(self) -> list[dict]:
-        """Return DB sessions enriched with live tmux state."""
+        """Return DB sessions enriched with live tmux state, plus unmanaged live sessions."""
         db_sessions = get_sessions(self._conn)
         live_by_name: dict[str, dict] = {s["name"]: s for s in tmux.list_sessions()}
+        db_names: set[str] = set()
 
         result = []
         for session in db_sessions:
+            db_names.add(session.name)
             entry: dict = {
                 "id": session.id,
                 "name": session.name,
@@ -287,6 +289,7 @@ class Manager:
                 "windows": None,
                 "attached": False,
                 "live": False,
+                "managed": True,
             }
             live = live_by_name.get(session.name)
             if live:
@@ -294,4 +297,20 @@ class Manager:
                 entry["attached"] = live["attached"]
                 entry["live"] = True
             result.append(entry)
+
+        # Include live tmux sessions not tracked in the DB
+        for name, live in live_by_name.items():
+            if name not in db_names:
+                result.append({
+                    "id": None,
+                    "name": name,
+                    "repo_id": None,
+                    "base_branch": None,
+                    "created_at": None,
+                    "windows": live["windows"],
+                    "attached": live["attached"],
+                    "live": True,
+                    "managed": False,
+                })
+
         return result

@@ -96,22 +96,26 @@ class SessionListScreen(Screen):
         table.add_columns("Session", "Repo", "Base Branch", "Windows", "")
 
         for session in self._sessions:
-            repo = self._repos.get(session["repo_id"])
-            repo_name = repo.name if repo else "?"
-            base_branch = session["base_branch"]
+            repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
+            repo_name = repo.name if repo else "-"
+            base_branch = session["base_branch"] or "-"
             windows = str(session["windows"]) if session["windows"] is not None else "-"
             status = ""
             if session["attached"]:
                 status = "[green]●[/green]"
             elif session["live"]:
                 status = "[blue]○[/blue]"
+            if not session["managed"]:
+                status += " [dim]unmanaged[/dim]"
+            # Use session name as key for unmanaged sessions (id is None)
+            row_key = str(session["id"]) if session["id"] is not None else f"unmanaged:{session['name']}"
             table.add_row(
                 session["name"],
                 _truncate(repo_name, 20),
                 _truncate(base_branch, 20),
                 windows,
                 status,
-                key=str(session["id"]),
+                key=row_key,
             )
 
         if self._sessions:
@@ -133,11 +137,10 @@ class SessionListScreen(Screen):
         row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
         self._switch_to_session(row_key.value)
 
-    def _switch_to_session(self, session_id_str: str | None) -> None:
-        if session_id_str is None:
+    def _switch_to_session(self, row_key: str | None) -> None:
+        if row_key is None:
             return
-        session_id = int(session_id_str)
-        session = next((s for s in self._sessions if s["id"] == session_id), None)
+        session = self._session_for_row_key(row_key)
         if session is None:
             return
         try:
@@ -145,6 +148,13 @@ class SessionListScreen(Screen):
         except tmux.TmuxError:
             pass
         self.app.exit()
+
+    def _session_for_row_key(self, row_key: str) -> dict | None:
+        if row_key.startswith("unmanaged:"):
+            name = row_key[len("unmanaged:"):]
+            return next((s for s in self._sessions if s["name"] == name), None)
+        session_id = int(row_key)
+        return next((s for s in self._sessions if s["id"] == session_id), None)
 
     def action_quit(self) -> None:
         self.app.exit()
@@ -156,12 +166,11 @@ class SessionListScreen(Screen):
         table = self.query_one(DataTable)
         if table.row_count == 0:
             return
-        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
-        session_id = int(row_key.value)
-        session = next((s for s in self._sessions if s["id"] == session_id), None)
-        if session is None:
+        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        session = self._session_for_row_key(row_key)
+        if session is None or not session["managed"]:
             return
-        self.app.push_screen(NewTabScreen(self._manager, session_id, session["name"]))
+        self.app.push_screen(NewTabScreen(self._manager, session["id"], session["name"]))
 
     def action_delete_session(self) -> None:
         self.app.push_screen(PlaceholderScreen("Delete Session"))
