@@ -1,0 +1,316 @@
+"""Cleanup view for managing stale worktrees."""
+
+from __future__ import annotations
+
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.screen import ModalScreen, Screen
+from textual.widgets import DataTable, Footer, Static
+from textual.containers import Horizontal, Vertical
+
+from torchard.core.db import get_sessions, get_worktrees
+from torchard.core.manager import Manager
+from torchard.core.models import Session, Worktree
+
+
+class ConfirmDeleteModal(ModalScreen[bool]):
+    """Simple yes/no confirmation modal."""
+
+    BINDINGS = [
+        Binding("y", "confirm", "Yes"),
+        Binding("n", "cancel", "No"),
+        Binding("escape", "cancel", "No"),
+    ]
+
+    def __init__(self, count: int) -> None:
+        super().__init__()
+        self._count = count
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Static(
+                f"[bold]Delete {self._count} worktree{'s' if self._count != 1 else ''}?[/bold]",
+                id="confirm-title",
+            ),
+            Static("This will remove the git worktree(s) and DB records.", id="confirm-body"),
+            Horizontal(
+                Static("[bold green]\\[y][/bold green] Yes", id="confirm-yes"),
+                Static("[bold red]\\[n][/bold red] No", id="confirm-no"),
+                id="confirm-buttons",
+            ),
+            id="confirm-container",
+        )
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    DEFAULT_CSS = """
+    ConfirmDeleteModal {
+        align: center middle;
+    }
+    #confirm-container {
+        background: #16213e;
+        border: solid #00aaff;
+        padding: 2 4;
+        width: 60;
+        height: auto;
+    }
+    #confirm-title {
+        text-align: center;
+        color: #ff6b6b;
+        margin-bottom: 1;
+    }
+    #confirm-body {
+        text-align: center;
+        color: #e0e0e0;
+        margin-bottom: 2;
+    }
+    #confirm-buttons {
+        align: center middle;
+        height: auto;
+    }
+    #confirm-yes {
+        margin-right: 4;
+    }
+    #confirm-no {
+        margin-left: 4;
+    }
+    """
+
+
+class CleanupScreen(Screen):
+    """Cleanup view: shows all worktrees with stale indicators and checkboxes."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Back"),
+        Binding("space", "toggle_selected", "Toggle"),
+        Binding("a", "select_all", "Select all"),
+        Binding("A", "deselect_all", "Deselect all", show=False),
+        Binding("d", "delete_selected", "Delete selected"),
+        Binding("j,down", "cursor_down", "Down", show=False),
+        Binding("k,up", "cursor_up", "Up", show=False),
+    ]
+
+    def __init__(self, manager: Manager) -> None:
+        super().__init__()
+        self._manager = manager
+        # row_key -> worktree
+        self._worktrees: dict[str, Worktree] = {}
+        # worktree id -> session name (or "Unattached")
+        self._session_names: dict[int, str] = {}
+        # set of stale worktree ids
+        self._stale_ids: set[int] = set()
+        # set of selected worktree ids (by row key string)
+        self._selected: set[str] = set()
+
+    def compose(self) -> ComposeResult:
+        yield Static("[bold]Cleanup Worktrees[/bold]", id="cleanup-title")
+        yield Static("", id="cleanup-status")
+        yield DataTable(id="cleanup-table", cursor_type="row", zebra_stripes=False)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        # Build session map
+        sessions: list[Session] = get_sessions(self._manager._conn)
+        session_by_id: dict[int, Session] = {s.id: s for s in sessions if s.id is not None}
+
+        # Load worktrees
+        all_worktrees: list[Worktree] = get_worktrees(self._manager._conn)
+
+        # Build session name lookup keyed by worktree session_id
+        for wt in all_worktrees:
+            if wt.id is None:
+                continue
+            if wt.session_id is not None and wt.session_id in session_by_id:
+                self._session_names[wt.id] = session_by_id[wt.session_id].name
+            else:
+                self._session_names[wt.id] = "Unattached"
+            self._worktrees[str(wt.id)] = wt
+
+        # Get stale worktrees
+        stale = self._manager.get_stale_worktrees()
+        self._stale_ids = {wt.id for wt in stale if wt.id is not None}
+
+        # Build table
+        table = self.query_one(DataTable)
+        table.add_columns("", "Branch", "Session", "Path", "Status")
+
+        # Sort: stale first, then by session name
+        sorted_worktrees = sorted(
+            all_worktrees,
+            key=lambda w: (
+                0 if (w.id is not None and w.id in self._stale_ids) else 1,
+                self._session_names.get(w.id, "Unattached") if w.id is not None else "Unattached",
+                w.branch,
+            ),
+        )
+
+        for wt in sorted_worktrees:
+            if wt.id is None:
+                continue
+            key = str(wt.id)
+            is_stale = wt.id in self._stale_ids
+            session_label = self._session_names.get(wt.id, "Unattached")
+            status = _make_status(wt, is_stale)
+            branch_display = f"[yellow]{wt.branch}[/yellow]" if is_stale else wt.branch
+            table.add_row(
+                "[ ]",
+                branch_display,
+                session_label,
+                _truncate(wt.path, 40),
+                status,
+                key=key,
+            )
+
+        if all_worktrees:
+            table.move_cursor(row=0)
+
+        self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        count = len(self._selected)
+        total = len(self._worktrees)
+        stale_count = len(self._stale_ids)
+        status = self.query_one("#cleanup-status", Static)
+        parts = [f"[dim]{total} worktree{'s' if total != 1 else ''}[/dim]"]
+        if stale_count:
+            parts.append(f"[yellow]{stale_count} stale[/yellow]")
+        if count:
+            parts.append(f"[bold #00aaff]{count} selected[/bold #00aaff]")
+        status.update("  ".join(parts))
+
+    def _update_row_checkbox(self, row_key: str) -> None:
+        table = self.query_one(DataTable)
+        checked = row_key in self._selected
+        marker = "[bold #00aaff][x][/bold #00aaff]" if checked else "[ ]"
+        first_col_key = table.ordered_columns[0].key
+        table.update_cell(row_key, first_col_key, marker)
+
+    def action_cursor_down(self) -> None:
+        self.query_one(DataTable).action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        self.query_one(DataTable).action_cursor_up()
+
+    def action_toggle_selected(self) -> None:
+        table = self.query_one(DataTable)
+        if table.row_count == 0:
+            return
+        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        if row_key is None:
+            return
+        if row_key in self._selected:
+            self._selected.discard(row_key)
+        else:
+            self._selected.add(row_key)
+        self._update_row_checkbox(row_key)
+        self._refresh_status()
+
+    def action_select_all(self) -> None:
+        for row_key in self._worktrees:
+            self._selected.add(row_key)
+            self._update_row_checkbox(row_key)
+        self._refresh_status()
+
+    def action_deselect_all(self) -> None:
+        for row_key in list(self._selected):
+            self._selected.discard(row_key)
+            self._update_row_checkbox(row_key)
+        self._refresh_status()
+
+    def action_delete_selected(self) -> None:
+        if not self._selected:
+            return
+
+        def on_confirm(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            errors: list[str] = []
+            deleted_keys: list[str] = []
+            for key in list(self._selected):
+                wt = self._worktrees.get(key)
+                if wt is None or wt.id is None:
+                    continue
+                try:
+                    self._manager.cleanup_worktree(wt.id)
+                    deleted_keys.append(key)
+                except Exception as exc:
+                    errors.append(f"{wt.branch}: {exc}")
+
+            table = self.query_one(DataTable)
+            for key in deleted_keys:
+                self._selected.discard(key)
+                self._stale_ids.discard(self._worktrees[key].id)
+                del self._worktrees[key]
+                table.remove_row(key)
+
+            self._refresh_status()
+            if errors:
+                self.notify("\n".join(errors), severity="error", title="Errors during cleanup")
+
+        self.app.push_screen(ConfirmDeleteModal(len(self._selected)), on_confirm)
+
+    def action_dismiss(self) -> None:
+        self.app.pop_screen()
+
+    DEFAULT_CSS = """
+    CleanupScreen {
+        background: #1a1a2e;
+    }
+    #cleanup-title {
+        color: #00aaff;
+        text-style: bold;
+        padding: 1 2 0 2;
+    }
+    #cleanup-status {
+        color: #aaaaaa;
+        padding: 0 2 1 2;
+        height: 1;
+    }
+    DataTable {
+        background: #1a1a2e;
+        color: #e0e0e0;
+        height: 1fr;
+    }
+    DataTable > .datatable--header {
+        background: #16213e;
+        color: #00aaff;
+        text-style: bold;
+    }
+    DataTable > .datatable--cursor {
+        background: #0f3460;
+        color: #ffffff;
+    }
+    DataTable > .datatable--hover {
+        background: #16213e;
+    }
+    Footer {
+        background: #16213e;
+        color: #aaaaaa;
+    }
+    Footer > .footer--highlight {
+        background: #0f3460;
+        color: #00aaff;
+    }
+    Footer > .footer--key {
+        color: #00aaff;
+        text-style: bold;
+    }
+    """
+
+
+def _make_status(wt: Worktree, is_stale: bool) -> str:
+    if not is_stale:
+        return "[green]ok[/green]"
+    # Stale — we don't have the specific reason here without re-running git,
+    # so just show "stale" with a warning color
+    return "[yellow]stale[/yellow]"
+
+
+def _truncate(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    return "…" + text[-(max_len - 1):]

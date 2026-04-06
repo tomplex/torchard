@@ -11,6 +11,8 @@ from textual.containers import Vertical
 from torchard.core import tmux
 from torchard.core.db import get_repos
 from torchard.core.manager import Manager
+from torchard.tui.views.cleanup import CleanupScreen
+from torchard.tui.views.new_tab import NewTabScreen
 
 
 class PlaceholderScreen(Screen):
@@ -150,13 +152,21 @@ class SessionListScreen(Screen):
         self.app.push_screen(PlaceholderScreen("New Session"))
 
     def action_new_tab(self) -> None:
-        self.app.push_screen(PlaceholderScreen("New Tab"))
+        table = self.query_one(DataTable)
+        if table.row_count == 0:
+            return
+        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
+        session_id = int(row_key.value)
+        session = next((s for s in self._sessions if s["id"] == session_id), None)
+        if session is None:
+            return
+        self.app.push_screen(NewTabScreen(self._manager, session_id, session["name"]))
 
     def action_delete_session(self) -> None:
         self.app.push_screen(PlaceholderScreen("Delete Session"))
 
     def action_cleanup(self) -> None:
-        self.app.push_screen(PlaceholderScreen("Cleanup Worktrees"))
+        self.app.push_screen(CleanupScreen(self._manager))
 
     def action_help(self) -> None:
         self.app.push_screen(PlaceholderScreen("Help"))
