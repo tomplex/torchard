@@ -136,6 +136,65 @@ class Manager:
         session.base_branch = base_branch
         return session
 
+    def checkout_and_review(self, repo_path: str, pr_or_branch: str) -> tuple[Session, str]:
+        """Create a worktree + session for a PR number or branch, ready for review.
+
+        Returns (session, worktree_path) so the caller can launch claude in it.
+        """
+        repo = self._get_repo_by_path(repo_path)
+        if repo is None:
+            default_branch = git.detect_default_branch(repo_path)
+            name = Path(repo_path).name
+            repo = add_repo(self._conn, Repo(path=repo_path, name=name, default_branch=default_branch))
+
+        # Resolve PR number to branch name
+        if pr_or_branch.isdigit():
+            branch = git.get_pr_branch(repo_path, int(pr_or_branch))
+        else:
+            branch = pr_or_branch
+
+        # Fetch the branch so it's available locally
+        git.fetch_branch(repo_path, branch)
+
+        # Create worktree
+        worktree_path = str(Path.home() / "dev" / "worktrees" / repo.name / branch)
+        base = f"origin/{branch}"
+        try:
+            git.create_worktree(repo_path, worktree_path, branch, base)
+        except git.GitError:
+            # Worktree or branch may already exist - try to just use the path
+            if not Path(worktree_path).exists():
+                raise
+
+        # Sanitize session name
+        session_name = branch.replace(".", "-").replace(":", "-")
+
+        # Create session
+        session = add_session(
+            self._conn,
+            Session(
+                name=session_name,
+                repo_id=repo.id,
+                base_branch=branch,
+                created_at=_now(),
+            ),
+        )
+        tmux.new_session(session_name, worktree_path)
+
+        # Record worktree
+        add_worktree(
+            self._conn,
+            Worktree(
+                repo_id=repo.id,
+                path=worktree_path,
+                branch=branch,
+                session_id=session.id,
+                created_at=_now(),
+            ),
+        )
+
+        return session, worktree_path
+
     def add_tab(self, session_id: int, branch_name: str) -> Worktree:
         """Create a worktree + tmux window for the given session."""
         session = self._get_session_by_id(session_id)

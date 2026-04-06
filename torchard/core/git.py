@@ -129,6 +129,25 @@ def remove_worktree(repo_path: str, worktree_path: str) -> None:
         )
 
 
+def get_pr_branch(repo_path: str, pr_number: int) -> str:
+    """Get the head branch name for a PR number via gh CLI."""
+    result = _run(
+        ["gh", "pr", "view", str(pr_number), "--json", "headRefName", "--jq", ".headRefName"],
+        cwd=repo_path,
+    )
+    if result.returncode != 0:
+        raise GitError(f"Failed to get PR #{pr_number}: {result.stderr.strip()}")
+    branch = result.stdout.strip()
+    if not branch:
+        raise GitError(f"PR #{pr_number} has no head branch")
+    return branch
+
+
+def fetch_branch(repo_path: str, branch: str) -> None:
+    """Fetch a branch from origin so it's available locally."""
+    _run(["git", "fetch", "origin", branch], cwd=repo_path)
+
+
 def is_branch_merged(repo_path: str, branch: str, into: str) -> bool:
     """Return True if branch has been merged into the given target branch."""
     result = _run(

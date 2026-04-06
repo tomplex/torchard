@@ -23,6 +23,7 @@ from torchard.tui.views.edit_branch import EditBranchScreen
 from torchard.tui.views.new_session import NewSessionScreen
 from torchard.tui.views.new_tab import NewTabScreen
 from torchard.tui.views.rename_session import RenameSessionScreen, RenameWindowScreen
+from torchard.tui.views.review import ReviewScreen
 
 
 _HELP_TEXT = """\
@@ -36,6 +37,7 @@ _HELP_TEXT = """\
   [#00aaff]d[/#00aaff]         Delete session
   [#00aaff]r[/#00aaff]         Rename session
   [#00aaff]b[/#00aaff]         Change base branch
+  [#00aaff]p[/#00aaff]         Checkout PR/branch + claude
   [#00aaff]a[/#00aaff]         Adopt unmanaged session
   [#00aaff]c[/#00aaff]         Cleanup stale worktrees
   [#00aaff]j/k[/#00aaff]       Navigate up/down
@@ -99,6 +101,7 @@ class SessionListScreen(Screen):
         Binding("d", "delete_session", "Delete"),
         Binding("r", "rename", "Rename"),
         Binding("b", "edit_branch", "Branch"),
+        Binding("p", "review", "PR/Branch"),
         Binding("a", "adopt", "Adopt"),
         Binding("c", "cleanup", "Cleanup"),
         Binding("question_mark", "help", "Help"),
@@ -317,6 +320,15 @@ class SessionListScreen(Screen):
         if session is None or not session["managed"]:
             return
         self.app.push_screen(EditBranchScreen(self._manager, session["id"], session["name"]))
+
+    def action_review(self) -> None:
+        session = self._current_session()
+        if session is None or not session["managed"]:
+            return
+        repo = self._repos.get(session["repo_id"])
+        if repo is None:
+            return
+        self.app.push_screen(ReviewScreen(self._manager, repo.path, repo.name))
 
     def action_adopt(self) -> None:
         session = self._current_session()
