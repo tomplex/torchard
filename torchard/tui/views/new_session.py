@@ -101,6 +101,7 @@ class NewSessionScreen(Screen):
 
         # When True the filter input is being used to collect a raw filesystem path
         self._awaiting_repo_path = False
+        self._render_seq = 0  # uniquify widget IDs across re-renders
 
     # ------------------------------------------------------------------
     # Compose
@@ -206,19 +207,23 @@ class NewSessionScreen(Screen):
     # ------------------------------------------------------------------
 
     def _populate_repo_list(self, repos: list[Repo]) -> None:
+        self._render_seq += 1
+        seq = self._render_seq
         lv = self.query_one("#item-list", ListView)
         lv.clear()
         for repo in repos:
-            lv.append(ListItem(Label(f"[bold]{repo.name}[/bold]  [dim]{repo.path}[/dim]"), id=f"repo-{repo.id}"))
-        lv.append(ListItem(Label("[green]+ Add new repo path…[/green]"), id="add-repo"))
+            lv.append(ListItem(Label(f"[bold]{repo.name}[/bold]  [dim]{repo.path}[/dim]"), id=f"repo-{repo.id}-{seq}"))
+        lv.append(ListItem(Label("[green]+ Add new repo path…[/green]"), id=f"add-repo-{seq}"))
 
     def _populate_branch_list(self, branches: list[str], query: str) -> None:
+        self._render_seq += 1
+        seq = self._render_seq
         lv = self.query_one("#item-list", ListView)
         lv.clear()
         for branch in branches:
-            lv.append(ListItem(Label(branch), id=f"branch-{branch}"))
+            lv.append(ListItem(Label(branch), id=f"branch-{branch}-{seq}"))
         if query and query not in branches:
-            lv.append(ListItem(Label(f"[green]+ New branch: [bold]{query}[/bold][/green]"), id="new-branch"))
+            lv.append(ListItem(Label(f"[green]+ New branch: [bold]{query}[/bold][/green]"), id=f"new-branch-{seq}"))
 
     # ------------------------------------------------------------------
     # Events
@@ -272,11 +277,12 @@ class NewSessionScreen(Screen):
             self._render_step()
 
     def _select_repo_item(self, item_id: str | None) -> None:
-        if item_id == "add-repo":
+        if item_id and item_id.startswith("add-repo"):
             self._enter_repo_path_mode()
             return
         if item_id and item_id.startswith("repo-"):
-            repo_id = int(item_id[len("repo-"):])
+            parts = item_id.split("-")
+            repo_id = int(parts[1])
             repo = next((r for r in self._repos if r.id == repo_id), None)
             if repo is not None:
                 self._selected_repo = repo
@@ -284,7 +290,7 @@ class NewSessionScreen(Screen):
                 self._render_step()
 
     def _select_branch_item(self, item_id: str | None) -> None:
-        if item_id == "new-branch":
+        if item_id and item_id.startswith("new-branch"):
             typed = self.query_one("#filter-input", Input).value
             if typed:
                 self._selected_branch = typed
@@ -292,7 +298,8 @@ class NewSessionScreen(Screen):
                 self._render_step()
             return
         if item_id and item_id.startswith("branch-"):
-            branch = item_id[len("branch-"):]
+            # id format: branch-{name}-{seq}; strip the last -{seq} part
+            branch = "-".join(item_id.split("-")[1:-1])
             self._selected_branch = branch
             self._step = 3
             self._render_step()
