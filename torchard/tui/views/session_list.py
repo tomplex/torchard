@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
@@ -162,7 +164,14 @@ class SessionListScreen(Screen):
                     prefix = "└" if is_last else "├"
                     wt_branch = wt_by_path.get(win["path"])
                     cmd = win.get("command", "")
-                    cmd_display = f"[italic]{cmd}[/italic]" if cmd and cmd != "zsh" else ""
+                    # Claude shows up as a version number (e.g. 2.1.89)
+                    is_claude = bool(cmd and re.match(r"^\d+\.\d+\.\d+", cmd))
+                    if is_claude:
+                        cmd_display = "[#E87B35]✦ claude[/#E87B35]"
+                    elif cmd and cmd != "zsh":
+                        cmd_display = f"[italic]{cmd}[/italic]"
+                    else:
+                        cmd_display = ""
                     detail_parts = []
                     if wt_branch:
                         detail_parts.append(f"[dim]wt:[/dim] {wt_branch}")
