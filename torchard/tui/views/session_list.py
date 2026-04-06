@@ -37,6 +37,7 @@ _HELP_TEXT = """\
   [#00aaff]d[/#00aaff]         Delete session
   [#00aaff]r[/#00aaff]         Rename session
   [#00aaff]b[/#00aaff]         Change base branch
+  [#00aaff]g[/#00aaff]         Launch claude in session
   [#00aaff]p[/#00aaff]         Checkout PR/branch + claude
   [#00aaff]a[/#00aaff]         Adopt unmanaged session
   [#00aaff]c[/#00aaff]         Cleanup stale worktrees
@@ -105,6 +106,7 @@ class SessionListScreen(Screen):
         Binding("d", "delete_session", "Delete"),
         Binding("r", "rename", "Rename"),
         Binding("b", "edit_branch", "Branch"),
+        Binding("g", "launch_claude", "Claude"),
         Binding("p", "review", "PR/Branch"),
         Binding("a", "adopt", "Adopt"),
         Binding("c", "cleanup", "Cleanup"),
@@ -376,6 +378,17 @@ class SessionListScreen(Screen):
         if session is None or not session["managed"]:
             return
         self.app.push_screen(EditBranchScreen(self._manager, session["id"], session["name"]))
+
+    def action_launch_claude(self) -> None:
+        session = self._current_session()
+        if session is None or not session["live"]:
+            return
+        # Create a new window in the session and send claude to it
+        import subprocess
+        subprocess.run(["tmux", "new-window", "-t", session["name"], "-n", "claude"])
+        subprocess.run(["tmux", "send-keys", "-t", f"{session['name']}:claude", "claude", "Enter"])
+        _write_switch({"type": "session", "target": session["name"]})
+        self.app.exit()
 
     def action_review(self) -> None:
         session = self._current_session()
