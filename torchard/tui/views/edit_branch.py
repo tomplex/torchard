@@ -82,7 +82,7 @@ class EditBranchScreen(Screen):
 
     def on_mount(self) -> None:
         self.query_one("#editbranch-title", Static).update(
-            f"Edit Base Branch — [dim]{self._session_name}[/dim]"
+            f"Edit Branch — [dim]{self._session_name}[/dim]"
         )
         self.query_one("#editbranch-hint", Static).update(
             "Pick the branch new worktrees will branch from."

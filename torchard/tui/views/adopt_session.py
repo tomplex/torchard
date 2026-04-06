@@ -119,7 +119,7 @@ class AdoptSessionScreen(Screen):
 
     def _render_branch_step(self) -> None:
         assert self._selected_repo is not None
-        self._set_title(f"Adopt '{self._session_name}' — Select Base Branch  [dim]({self._selected_repo.name})[/dim]")
+        self._set_title(f"Adopt '{self._session_name}' — Select Branch  [dim]({self._selected_repo.name})[/dim]")
         self._set_hint("Pick the branch new worktrees will branch from.")
         fi = self.query_one("#adopt-filter", Input)
         fi.placeholder = "Filter or type a new branch…"

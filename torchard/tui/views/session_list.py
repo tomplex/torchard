@@ -36,7 +36,7 @@ _HELP_TEXT = """\
   [#00aaff]w[/#00aaff]         New worktree tab in session
   [#00aaff]d[/#00aaff]         Delete session
   [#00aaff]r[/#00aaff]         Rename session
-  [#00aaff]b[/#00aaff]         Change base branch
+  [#00aaff]b[/#00aaff]         Change branch
   [#00aaff]g[/#00aaff]         Launch claude in session
   [#00aaff]p[/#00aaff]         Checkout PR/branch + claude
   [#00aaff]h[/#00aaff]         Conversation history
@@ -106,7 +106,7 @@ class SessionListScreen(Screen):
         Binding("x", "kill_window", "Kill tab", show=False),
         Binding("d", "delete_session", "Delete"),
         Binding("r", "rename", "Rename"),
-        Binding("b", "edit_branch", "Branch"),
+        Binding("b", "edit_branch", "Rebranch"),
         Binding("g", "launch_claude", "Claude"),
         Binding("p", "review", "PR/Branch"),
         Binding("a", "adopt", "Adopt"),
@@ -130,7 +130,7 @@ class SessionListScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("Session", "Repo", "Base Branch", "Windows", "")
+        table.add_columns("Session", "Repo", "Branch", "Windows", "")
         self._refresh_table()
         table.focus()
 
