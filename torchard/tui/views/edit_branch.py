@@ -139,6 +139,8 @@ class EditBranchScreen(Screen):
             return
         lv = self.query_one("#editbranch-list", ListView)
         highlighted = lv.highlighted_child
+        if highlighted is None and len(lv.children) > 0:
+            highlighted = lv.children[0]
         if highlighted is not None:
             self._select_item(highlighted.id)
         elif event.value.strip():

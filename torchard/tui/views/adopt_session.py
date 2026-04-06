@@ -183,6 +183,8 @@ class AdoptSessionScreen(Screen):
     def _confirm_list_selection(self, typed_value: str) -> None:
         lv = self.query_one("#adopt-list", ListView)
         highlighted = lv.highlighted_child
+        if highlighted is None and len(lv.children) > 0:
+            highlighted = lv.children[0]
         if highlighted is not None:
             item_id = highlighted.id
             if self._step == 1:

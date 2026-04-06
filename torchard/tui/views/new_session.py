@@ -177,7 +177,7 @@ class NewSessionScreen(Screen):
         dev_dir = Path.home() / "dev"
         if dev_dir.is_dir():
             for entry in sorted(dev_dir.iterdir()):
-                if entry.is_dir() and entry.name != "worktrees":
+                if entry.is_dir() and entry.name != "worktrees" and not entry.name.startswith("."):
                     self._dev_dirs.append((entry.name, str(entry)))
 
         self._populate_repo_list_from_dirs(self._dev_dirs)
@@ -283,6 +283,9 @@ class NewSessionScreen(Screen):
         """Attempt to advance from a list step using the highlighted item or typed text."""
         lv = self.query_one("#item-list", ListView)
         highlighted = lv.highlighted_child
+        # Default to first item if nothing is highlighted
+        if highlighted is None and len(lv.children) > 0:
+            highlighted = lv.children[0]
         if highlighted is not None:
             item_id = highlighted.id
             if self._step == 1:
