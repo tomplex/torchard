@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -73,17 +75,41 @@ class Manager:
         # If the base branch is the repo's default branch, start in the repo root.
         # Otherwise create a worktree for the feature branch.
         default = repo.default_branch
+        created_worktree = False
         if base_branch == default:
             start_dir = repo_path
         else:
+            # Fetch latest before creating worktree
+            git.fetch_and_pull(repo_path, default)
+
             worktree_path = str(Path.home() / "dev" / "worktrees" / repo.name / base_branch)
             try:
                 git.create_worktree(repo_path, worktree_path, base_branch, default)
+                created_worktree = True
             except git.GitError:
                 # Branch/worktree may already exist - use it if the dir is there
                 if not Path(worktree_path).exists():
                     raise
             start_dir = worktree_path
+
+            # Copy env files into worktree if they exist in the repo root
+            for name in (".env", ".agents"):
+                src = Path(repo_path) / name
+                dst = Path(worktree_path) / name
+                if src.exists() and not dst.exists():
+                    if src.is_dir():
+                        shutil.copytree(str(src), str(dst))
+                    else:
+                        shutil.copy2(str(src), str(dst))
+
+            # Register with wt-registry if available
+            branch_slug = base_branch.replace("/", "-")
+            wt_registry = shutil.which("wt-registry")
+            if wt_registry:
+                subprocess.run(
+                    [wt_registry, "add", "-b", base_branch, "-p", worktree_path, "--project", repo.name],
+                    capture_output=True,
+                )
 
         session = add_session(
             self._conn,
@@ -95,7 +121,13 @@ class Manager:
             ),
         )
 
-        tmux.new_session(session_name, start_dir)
+        # Use worktree-session for the standard 3-window layout if available,
+        # otherwise fall back to a bare tmux session
+        worktree_session = shutil.which("worktree-session")
+        if worktree_session and start_dir != repo_path:
+            subprocess.run([worktree_session, session_name, start_dir], capture_output=True)
+        else:
+            tmux.new_session(session_name, start_dir)
 
         # Record worktree if we created one
         if start_dir != repo_path:

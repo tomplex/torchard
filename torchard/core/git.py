@@ -143,6 +143,12 @@ def get_pr_branch(repo_path: str, pr_number: int) -> str:
     return branch
 
 
+def fetch_and_pull(repo_path: str, branch: str) -> None:
+    """Fetch origin and pull the given branch."""
+    _run(["git", "fetch", "origin"], cwd=repo_path)
+    _run(["git", "pull", "origin", branch], cwd=repo_path)
+
+
 def fetch_branch(repo_path: str, branch: str) -> None:
     """Fetch a branch from origin so it's available locally."""
     _run(["git", "fetch", "origin", branch], cwd=repo_path)

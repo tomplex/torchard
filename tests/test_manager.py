@@ -58,6 +58,10 @@ def _patch_git_create_worktree():
     return patch("torchard.core.manager.git.create_worktree")
 
 
+def _patch_git_fetch_and_pull():
+    return patch("torchard.core.manager.git.fetch_and_pull")
+
+
 def _patch_git_remove_worktree():
     return patch("torchard.core.manager.git.remove_worktree")
 
@@ -97,7 +101,7 @@ class TestCreateSession:
         assert len(get_sessions(conn)) == 2
 
     def test_returns_session_object(self, mgr):
-        with _patch_git_detect(), _patch_tmux_new_session(), _patch_git_create_worktree():
+        with _patch_git_detect(), _patch_tmux_new_session(), _patch_git_create_worktree(), _patch_git_fetch_and_pull():
             session = mgr.create_session(REPO_PATH, "feature", SESSION_NAME)
         assert isinstance(session, Session)
         assert session.base_branch == "feature"
