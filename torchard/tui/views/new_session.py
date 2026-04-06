@@ -44,9 +44,9 @@ class NewSessionScreen(Screen):
     }
 
     #wizard-container {
-        width: 70;
+        width: 90;
         height: auto;
-        max-height: 40;
+        max-height: 50;
         border: solid $accent;
         padding: 1 2;
     }
@@ -69,7 +69,7 @@ class NewSessionScreen(Screen):
     }
 
     #item-list {
-        height: 12;
+        height: 18;
         border: solid $panel;
     }
 

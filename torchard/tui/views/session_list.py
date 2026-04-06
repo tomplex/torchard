@@ -15,6 +15,7 @@ from torchard.tui.views.adopt_session import AdoptSessionScreen
 from torchard.tui.views.cleanup import CleanupScreen
 from torchard.tui.views.new_session import NewSessionScreen
 from torchard.tui.views.new_tab import NewTabScreen
+from torchard.tui.views.rename_session import RenameSessionScreen
 
 
 class PlaceholderScreen(Screen):
@@ -75,6 +76,7 @@ class SessionListScreen(Screen):
         Binding("n", "new_session", "New"),
         Binding("w", "new_tab", "Tab"),
         Binding("d", "delete_session", "Delete"),
+        Binding("r", "rename", "Rename"),
         Binding("a", "adopt", "Adopt"),
         Binding("c", "cleanup", "Cleanup"),
         Binding("question_mark", "help", "Help"),
@@ -113,8 +115,8 @@ class SessionListScreen(Screen):
             row_key = str(session["id"]) if session["id"] is not None else f"unmanaged:{session['name']}"
             table.add_row(
                 session["name"],
-                _truncate(repo_name, 20),
-                _truncate(base_branch, 20),
+                _truncate(repo_name, 30),
+                _truncate(base_branch, 30),
                 windows,
                 status,
                 key=row_key,
@@ -173,6 +175,16 @@ class SessionListScreen(Screen):
         if session is None or not session["managed"]:
             return
         self.app.push_screen(NewTabScreen(self._manager, session["id"], session["name"]))
+
+    def action_rename(self) -> None:
+        table = self.query_one(DataTable)
+        if table.row_count == 0:
+            return
+        row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        session = self._session_for_row_key(row_key)
+        if session is None or not session["managed"]:
+            return
+        self.app.push_screen(RenameSessionScreen(self._manager, session["id"], session["name"]))
 
     def action_adopt(self) -> None:
         table = self.query_one(DataTable)

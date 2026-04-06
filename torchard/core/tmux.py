@@ -86,6 +86,15 @@ def new_window(session_name: str, window_name: str, start_dir: str) -> None:
         )
 
 
+def rename_session(old_name: str, new_name: str) -> None:
+    """Rename a tmux session."""
+    result = _run(["tmux", "rename-session", "-t", old_name, new_name])
+    if result.returncode != 0:
+        raise TmuxError(
+            f"Failed to rename session '{old_name}' to '{new_name}': {result.stderr.strip()}"
+        )
+
+
 def kill_session(session_name: str) -> None:
     """Kill the named tmux session."""
     result = _run(["tmux", "kill-session", "-t", session_name])

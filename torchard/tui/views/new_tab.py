@@ -70,7 +70,7 @@ class NewTabScreen(Screen):
         align: center middle;
     }
     #new-tab-container {
-        width: 60;
+        width: 70;
         height: auto;
         padding: 2 4;
         border: round $accent;

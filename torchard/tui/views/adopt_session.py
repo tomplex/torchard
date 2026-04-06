@@ -28,9 +28,9 @@ class AdoptSessionScreen(Screen):
         align: center middle;
     }
     #adopt-container {
-        width: 70;
+        width: 90;
         height: auto;
-        max-height: 40;
+        max-height: 50;
         border: solid $accent;
         padding: 1 2;
     }
@@ -49,7 +49,7 @@ class AdoptSessionScreen(Screen):
         margin-bottom: 1;
     }
     #adopt-list {
-        height: 12;
+        height: 18;
         border: solid $panel;
     }
     #adopt-error {

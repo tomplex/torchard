@@ -102,6 +102,27 @@ class Manager:
         )
         return session
 
+    def rename_session(self, session_id: int, new_name: str) -> Session:
+        """Rename a session in both tmux and the DB."""
+        session = self._get_session_by_id(session_id)
+        if session is None:
+            raise ValueError(f"Session {session_id} not found")
+
+        # Rename in tmux (if live)
+        try:
+            tmux.rename_session(session.name, new_name)
+        except tmux.TmuxError:
+            pass  # session may not be live
+
+        # Rename in DB
+        self._conn.execute(
+            "UPDATE sessions SET name = ? WHERE id = ?",
+            (new_name, session_id),
+        )
+        self._conn.commit()
+        session.name = new_name
+        return session
+
     def add_tab(self, session_id: int, branch_name: str) -> Worktree:
         """Create a worktree + tmux window for the given session."""
         session = self._get_session_by_id(session_id)

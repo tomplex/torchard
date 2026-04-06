@@ -160,7 +160,7 @@ class CleanupScreen(Screen):
                 "[ ]",
                 branch_display,
                 session_label,
-                _truncate(wt.path, 40),
+                _truncate(wt.path, 50),
                 status,
                 key=key,
             )
