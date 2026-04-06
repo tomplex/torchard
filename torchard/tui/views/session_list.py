@@ -194,7 +194,15 @@ class SessionListScreen(Screen):
             table.move_cursor(row=0)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        self._switch_to_session(event.row_key.value)
+        row_key = event.row_key.value
+        if row_key and row_key.startswith("win:"):
+            parts = row_key.split(":", 2)
+            _write_switch({"type": "window", "session": parts[1], "window": int(parts[2])})
+            self.app.exit()
+            return
+        if row_key and self._is_child_row(row_key):
+            return
+        self._switch_to_session(row_key)
 
     def action_cursor_down(self) -> None:
         self.query_one(DataTable).action_cursor_down()
