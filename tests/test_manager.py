@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from torchard.core.db import get_repos, get_sessions, get_worktrees, init_db
+from torchard.core.db import get_repos, get_sessions, get_worktrees, init_db, set_config
 from torchard.core.manager import Manager
 from torchard.core.models import Repo, Session, Worktree
 
@@ -356,29 +356,32 @@ class TestListSessions:
 # ---------------------------------------------------------------------------
 
 class TestScanExisting:
+    def _set_dirs(self, conn, tmp_path):
+        """Set config to use tmp_path-based directories."""
+        home_dev = tmp_path / "dev"
+        home_dev.mkdir(exist_ok=True)
+        worktrees_root = home_dev / "worktrees"
+        worktrees_root.mkdir(exist_ok=True)
+        set_config(conn, "repos_dir", str(home_dev))
+        set_config(conn, "worktrees_dir", str(worktrees_root))
+        return home_dev, worktrees_root
+
     def test_scan_no_dirs(self, mgr, conn, tmp_path):
         """scan_existing with empty directories does nothing."""
-        home_dev = tmp_path / "dev"
-        home_dev.mkdir()
-        worktrees_root = home_dev / "worktrees"
-        worktrees_root.mkdir()
+        self._set_dirs(conn, tmp_path)
 
-        with patch("torchard.core.manager.Path.home", return_value=tmp_path), \
-             patch("torchard.core.manager.tmux.list_sessions", return_value=[]):
+        with patch("torchard.core.manager.tmux.list_sessions", return_value=[]):
             mgr.scan_existing()
 
         assert get_repos(conn) == []
 
     def test_scan_discovers_git_repo(self, mgr, conn, tmp_path):
-        home_dev = tmp_path / "dev"
-        home_dev.mkdir()
-        (home_dev / "worktrees").mkdir()
+        home_dev, _ = self._set_dirs(conn, tmp_path)
         repo_dir = home_dev / "coolrepo"
         repo_dir.mkdir()
         (repo_dir / ".git").mkdir()
 
-        with patch("torchard.core.manager.Path.home", return_value=tmp_path), \
-             patch("torchard.core.manager.git.detect_default_branch", return_value="main"), \
+        with patch("torchard.core.manager.git.detect_default_branch", return_value="main"), \
              patch("torchard.core.manager.tmux.list_sessions", return_value=[]):
             mgr.scan_existing()
 
@@ -387,9 +390,7 @@ class TestScanExisting:
         assert repos[0].name == "coolrepo"
 
     def test_scan_does_not_duplicate_known_repo(self, mgr, conn, tmp_path):
-        home_dev = tmp_path / "dev"
-        home_dev.mkdir()
-        (home_dev / "worktrees").mkdir()
+        home_dev, _ = self._set_dirs(conn, tmp_path)
         repo_dir = home_dev / "coolrepo"
         repo_dir.mkdir()
         (repo_dir / ".git").mkdir()
@@ -399,8 +400,7 @@ class TestScanExisting:
              _patch_tmux_new_session():
             mgr.create_session(str(repo_dir), "main", "my-session")
 
-        with patch("torchard.core.manager.Path.home", return_value=tmp_path), \
-             patch("torchard.core.manager.git.detect_default_branch", return_value="main") as mock_detect, \
+        with patch("torchard.core.manager.git.detect_default_branch", return_value="main") as mock_detect, \
              patch("torchard.core.manager.tmux.list_sessions", return_value=[]):
             mgr.scan_existing()
 
@@ -409,16 +409,14 @@ class TestScanExisting:
         assert len(get_repos(conn)) == 1
 
     def test_scan_discovers_worktrees(self, mgr, conn, tmp_path):
-        home_dev = tmp_path / "dev"
-        home_dev.mkdir()
+        home_dev, worktrees_root = self._set_dirs(conn, tmp_path)
         repo_dir = home_dev / "myrepo"
         repo_dir.mkdir()
         (repo_dir / ".git").mkdir()
-        wt_dir = home_dev / "worktrees" / "myrepo" / "feature-branch"
+        wt_dir = worktrees_root / "myrepo" / "feature-branch"
         wt_dir.mkdir(parents=True)
 
-        with patch("torchard.core.manager.Path.home", return_value=tmp_path), \
-             patch("torchard.core.manager.git.detect_default_branch", return_value="main"), \
+        with patch("torchard.core.manager.git.detect_default_branch", return_value="main"), \
              patch("torchard.core.manager.tmux.list_sessions", return_value=[]):
             mgr.scan_existing()
 
@@ -427,17 +425,14 @@ class TestScanExisting:
         assert wts[0].branch == "feature-branch"
 
     def test_scan_matches_tmux_session_to_repo(self, mgr, conn, tmp_path):
-        home_dev = tmp_path / "dev"
-        home_dev.mkdir()
-        (home_dev / "worktrees").mkdir()
+        home_dev, _ = self._set_dirs(conn, tmp_path)
         repo_dir = home_dev / "myrepo"
         repo_dir.mkdir()
         (repo_dir / ".git").mkdir()
 
         live_sessions = [{"name": "myrepo-work", "windows": 1, "attached": False}]
 
-        with patch("torchard.core.manager.Path.home", return_value=tmp_path), \
-             patch("torchard.core.manager.git.detect_default_branch", return_value="main"), \
+        with patch("torchard.core.manager.git.detect_default_branch", return_value="main"), \
              patch("torchard.core.manager.tmux.list_sessions", return_value=live_sessions):
             mgr.scan_existing()
 

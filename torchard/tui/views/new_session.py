@@ -181,12 +181,13 @@ class NewSessionScreen(Screen):
         fi.placeholder = "Filter repos…"
         fi.value = ""
 
-        # Scan ~/dev/ for directories (excluding worktrees)
+        # Scan repos dir for directories (excluding worktrees dir)
         self._dev_dirs: list[tuple[str, str]] = []  # (name, path)
-        dev_dir = Path.home() / "dev"
-        if dev_dir.is_dir():
-            for entry in sorted(dev_dir.iterdir()):
-                if entry.is_dir() and entry.name != "worktrees" and not entry.name.startswith("."):
+        repos_dir = self._manager.repos_dir
+        worktrees_dir = self._manager.worktrees_dir
+        if repos_dir.is_dir():
+            for entry in sorted(repos_dir.iterdir()):
+                if entry.is_dir() and entry != worktrees_dir and not entry.name.startswith("."):
                     self._dev_dirs.append((entry.name, str(entry)))
 
         self._populate_repo_list_from_dirs(self._dev_dirs)

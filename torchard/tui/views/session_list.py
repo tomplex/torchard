@@ -23,6 +23,7 @@ from torchard.tui.views.history import HistoryScreen
 from torchard.tui.views.new_session import NewSessionScreen
 from torchard.tui.views.new_tab import NewTabScreen
 from torchard.tui.views.rename_session import RenameSessionScreen, RenameWindowScreen
+from torchard.tui.views.settings import SettingsScreen
 from torchard.tui.views.review import ReviewScreen
 
 
@@ -45,6 +46,7 @@ _HELP_TEXT = """\
   [#00aaff]j/k[/#00aaff]       Navigate up/down
   [#00aaff]/[/#00aaff]         Filter sessions
   [#00aaff]x[/#00aaff]         Kill tab (on expanded tab)
+  [#00aaff]S[/#00aaff]         Settings
   [#00aaff]q[/#00aaff]         Quit
 
 [bold]Cleanup View[/bold]
@@ -112,6 +114,7 @@ class SessionListScreen(Screen):
         Binding("a", "adopt", "Adopt"),
         Binding("h", "history", "History"),
         Binding("c", "cleanup", "Cleanup"),
+        Binding("S", "settings", "Settings", show=False),
         Binding("question_mark", "help", "Help"),
     ]
 
@@ -496,7 +499,7 @@ class SessionListScreen(Screen):
                         paths.append(wt.path)
                 # Also include worktrees root for this repo
                 from pathlib import Path
-                wt_root = str(Path.home() / "dev" / "worktrees" / repo.name)
+                wt_root = str(self._manager.worktrees_dir / repo.name)
                 paths.append(wt_root)
                 scope_paths = paths
                 scope_label = session["name"]
@@ -504,6 +507,9 @@ class SessionListScreen(Screen):
 
     def action_cleanup(self) -> None:
         self.app.push_screen(CleanupScreen(self._manager))
+
+    def action_settings(self) -> None:
+        self.app.push_screen(SettingsScreen(self._manager))
 
     def action_help(self) -> None:
         self.app.push_screen(HelpScreen())

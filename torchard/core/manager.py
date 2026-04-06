@@ -15,6 +15,7 @@ from torchard.core.db import (
     add_worktree,
     delete_session as db_delete_session,
     delete_worktree as db_delete_worktree,
+    get_config,
     get_repos,
     get_sessions,
     get_worktrees,
@@ -43,6 +44,17 @@ def detect_subsystems(repo_path: str) -> list[str]:
 class Manager:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+
+    @property
+    def repos_dir(self) -> Path:
+        return Path(get_config(self._conn, "repos_dir") or str(Path.home() / "dev"))
+
+    @property
+    def worktrees_dir(self) -> Path:
+        return Path(get_config(self._conn, "worktrees_dir") or str(Path.home() / "dev" / "worktrees"))
+
+    def _worktree_path(self, repo_name: str, branch: str) -> str:
+        return str(self.worktrees_dir / repo_name / branch)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -94,7 +106,7 @@ class Manager:
             # Fetch latest before creating worktree
             git.fetch_and_pull(repo_path, default)
 
-            worktree_path = str(Path.home() / "dev" / "worktrees" / repo.name / base_branch)
+            worktree_path = self._worktree_path(repo.name, base_branch)
             try:
                 git.create_worktree(repo_path, worktree_path, base_branch, default)
                 created_worktree = True
@@ -219,7 +231,7 @@ class Manager:
         git.fetch_branch(repo_path, branch)
 
         # Create worktree
-        worktree_path = str(Path.home() / "dev" / "worktrees" / repo.name / branch)
+        worktree_path = self._worktree_path(repo.name, branch)
         base = f"origin/{branch}"
         try:
             git.create_worktree(repo_path, worktree_path, branch, base)
@@ -267,7 +279,7 @@ class Manager:
         if repo is None:
             raise ValueError(f"Repo {session.repo_id} not found")
 
-        worktree_path = Path.home() / "dev" / "worktrees" / repo.name / branch_name
+        worktree_path = Path(self._worktree_path(repo.name, branch_name))
         git.create_worktree(repo.path, str(worktree_path), branch_name, session.base_branch)
         tmux.new_window(session.name, branch_name, str(worktree_path))
 
@@ -350,10 +362,10 @@ class Manager:
         return stale
 
     def scan_existing(self) -> None:
-        """First-run adoption: scan ~/dev/worktrees/ and ~/dev/ for repos/worktrees,
-        scan live tmux sessions, and populate the DB with discovered state."""
-        home_dev = Path.home() / "dev"
-        worktrees_root = home_dev / "worktrees"
+        """First-run adoption: scan repos and worktrees dirs, scan live tmux sessions,
+        and populate the DB with discovered state."""
+        home_dev = self.repos_dir
+        worktrees_root = self.worktrees_dir
 
         # Build a path -> Repo map from already-known repos
         known_repos: dict[str, Repo] = {r.path: r for r in get_repos(self._conn)}

@@ -25,6 +25,18 @@ CREATE TABLE IF NOT EXISTS sessions (
 )
 """
 
+_CREATE_CONFIG = """
+CREATE TABLE IF NOT EXISTS config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+)
+"""
+
+_DEFAULT_CONFIG = {
+    "repos_dir": str(Path.home() / "dev"),
+    "worktrees_dir": str(Path.home() / "dev" / "worktrees"),
+}
+
 _CREATE_WORKTREES = """
 CREATE TABLE IF NOT EXISTS worktrees (
     id          INTEGER PRIMARY KEY,
@@ -55,8 +67,29 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     conn.execute(_CREATE_REPOS)
     conn.execute(_CREATE_SESSIONS)
     conn.execute(_CREATE_WORKTREES)
+    conn.execute(_CREATE_CONFIG)
+    # Seed defaults (INSERT OR IGNORE so existing values aren't overwritten)
+    for key, value in _DEFAULT_CONFIG.items():
+        conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", (key, value))
     conn.commit()
     return conn
+
+
+# --- Config ---
+
+def get_config(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM config WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_config(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+
+
+def get_all_config(conn: sqlite3.Connection) -> dict[str, str]:
+    rows = conn.execute("SELECT key, value FROM config ORDER BY key").fetchall()
+    return {r["key"]: r["value"] for r in rows}
 
 
 # --- Repos ---
