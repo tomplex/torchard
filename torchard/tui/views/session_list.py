@@ -172,19 +172,18 @@ class SessionListScreen(Screen):
                         cmd_display = f"[italic]{cmd}[/italic]"
                     else:
                         cmd_display = ""
-                    detail_parts = []
+                    col_cmd = cmd_display
+                    col_detail = ""
                     if wt_branch:
-                        detail_parts.append(f"[dim]wt:[/dim] {wt_branch}")
-                    if cmd_display:
-                        detail_parts.append(cmd_display)
-                    detail_parts.append(f"[dim]{_truncate(win['path'], 40)}[/dim]")
-                    detail = "  ".join(detail_parts)
+                        col_detail = f"[dim]wt:[/dim] {wt_branch}"
+                    else:
+                        col_detail = f"[dim]{_truncate(win['path'], 30)}[/dim]"
                     table.add_row(
                         f"  [dim]{prefix}[/dim] [dim]{win['name']}[/dim]",
+                        col_cmd,
+                        col_detail,
                         "",
                         "",
-                        "",
-                        detail,
                         key=f"win:{session['name']}:{win['index']}",
                     )
 
