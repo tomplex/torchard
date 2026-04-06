@@ -1,6 +1,6 @@
 # torchard
 
-tmux session and git worktree manager. A TUI (built with [textual](https://github.com/Textualize/textual)) for managing parallel development across repos and feature branches.
+TUI for managing tmux sessions and git worktrees together. Built with [textual](https://github.com/Textualize/textual).
 
 Each tmux session is bound to a repo and branch. New tabs within a session automatically create worktrees. torchard handles session creation, navigation, worktree lifecycle and cleanup from a single interface.
 
@@ -9,31 +9,34 @@ Each tmux session is bound to a repo and branch. New tabs within a session autom
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```
-cd ~/dev/torchard
+git clone git@github.com:tomplex/torchard.git
+cd torchard
 uv sync
 ```
 
-Wire it into tmux as a popup (replaces the default session picker):
+Add a tmux keybind to launch it as a popup:
 
 ```tmux
 bind -n M-s display-popup -E -w 80% -h 70% "/path/to/torchard/.venv/bin/torchard"
 ```
 
-On first launch, torchard scans `~/dev/` for repos, `~/dev/worktrees/` for existing worktrees and matches live tmux sessions to repos.
+On first launch, torchard scans your repos and worktrees directories (configurable via `S` settings) and discovers live tmux sessions.
 
 ## What it does
 
-**Session list** is the main view. Shows all tmux sessions (managed and unmanaged) sorted with the current session on top. `enter` to switch, `tab` to expand and see live tmux windows with running commands. Claude sessions show up with a `✦` marker.
+**Session list** is the main view. Shows all tmux sessions sorted with the current session on top. `enter` to switch, `tab` to expand and see live windows with running commands. Claude Code sessions show up with a `✦` marker. `/` to filter.
 
-**New session** (`n`) walks you through picking a repo from `~/dev/`, a branch, a name and (for monorepos) a working subdirectory. Feature branches get a worktree at `~/dev/worktrees/<repo>/<branch>` with a 3-window layout: claude, diff and shell.
+**New session** (`n`) walks through picking a repo, branch, session name and (for monorepos) a working subdirectory. Feature branches get a worktree with a 3-window layout: claude, diff and shell.
 
-**New tab** (`w`) creates a worktree branching from the session's branch and launches claude in it.
+**New tab** (`w`) creates a worktree branching from the session's branch and launches Claude Code in it.
 
-**PR checkout** (`p`) takes a PR number or branch name, fetches it, creates a worktree and session, launches claude, switches you there.
+**PR checkout** (`p`) takes a PR number or branch name (via `gh`), fetches it, creates a worktree and session, launches Claude Code, and switches to it.
 
-**History** (`h`) browses your Claude conversation index (`~/.claude/conversation-index.md`). Scoped to the current session's repo or global. `enter` resumes a conversation with `claude --resume` in the right directory.
+**History** (`h`) browses Claude Code conversation history (`~/.claude/conversation-index.md`), scoped to the current session's repo or globally. `enter` resumes a conversation with `claude --resume` in its original directory.
 
-**Cleanup** (`c`) shows all worktrees with async staleness detection (merged or remote-deleted branches). Select and bulk-delete.
+**Cleanup** (`c`) shows all worktrees with staleness detection (merged or remote-deleted branches). Select and bulk-delete.
+
+**Settings** (`S`) configure repos directory, worktrees directory, etc.
 
 ## Keybinds
 
@@ -44,7 +47,7 @@ On first launch, torchard scans `~/dev/` for repos, `~/dev/worktrees/` for exist
 | `/` | Filter sessions |
 | `n` | New session |
 | `w` | New worktree tab |
-| `g` | Launch claude in session |
+| `g` | Launch Claude Code in session |
 | `p` | Checkout PR/branch |
 | `d` | Delete session |
 | `r` | Rename session or tab |
@@ -53,11 +56,10 @@ On first launch, torchard scans `~/dev/` for repos, `~/dev/worktrees/` for exist
 | `h` | Conversation history |
 | `c` | Cleanup worktrees |
 | `x` | Kill tab (on expanded window) |
+| `S` | Settings |
 | `?` | Help |
 | `q` | Quit |
 
 ## Data
 
-Session and worktree metadata lives in `~/.local/share/torchard/torchard.db` (SQLite). The DB is the source of truth for managed sessions - torchard doesn't use the older `wt-registry` system.
-
-Worktrees follow the convention `~/dev/worktrees/<repo-name>/<branch-name>`.
+Session and worktree metadata lives in `~/.local/share/torchard/torchard.db` (SQLite). Worktrees are created at `<worktrees_dir>/<repo-name>/<branch-name>` (default `~/dev/worktrees/`). Both directories are configurable in settings.
