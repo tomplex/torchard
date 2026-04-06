@@ -139,7 +139,8 @@ class SessionListScreen(Screen):
                 status += " [dim]unmanaged[/dim]"
             row_key = str(session["id"]) if session["id"] is not None else f"unmanaged:{session['name']}"
             expanded = row_key in self._expanded
-            indicator = "▾" if expanded else "▸" if session["managed"] else " "
+            can_expand = session["live"]
+            indicator = "▾" if expanded else "▸" if can_expand else " "
             table.add_row(
                 f"{indicator} {session['name']}",
                 _truncate(repo_name, 30),
@@ -149,26 +150,27 @@ class SessionListScreen(Screen):
                 key=row_key,
             )
 
-            if expanded and session["managed"] and session["id"] is not None:
-                worktrees = get_worktrees_for_session(self._manager._conn, session["id"])
-                if worktrees:
-                    for wt in worktrees:
-                        table.add_row(
-                            f"  [dim]└[/dim] [dim]{wt.branch}[/dim]",
-                            "",
-                            "",
-                            "",
-                            f"[dim]{_truncate(wt.path, 40)}[/dim]",
-                            key=f"wt:{wt.id}",
-                        )
-                else:
+            if expanded and session["live"]:
+                tmux_windows = tmux.list_windows(session["name"])
+                # Build worktree lookup by path for this session
+                wt_by_path: dict[str, str] = {}
+                if session["managed"] and session["id"] is not None:
+                    for wt in get_worktrees_for_session(self._manager._conn, session["id"]):
+                        wt_by_path[wt.path] = wt.branch
+                for i, win in enumerate(tmux_windows):
+                    is_last = i == len(tmux_windows) - 1
+                    prefix = "└" if is_last else "├"
+                    wt_branch = wt_by_path.get(win["path"])
+                    detail = f"[dim]{_truncate(win['path'], 40)}[/dim]"
+                    if wt_branch:
+                        detail = f"[dim]wt:[/dim] {wt_branch}  {detail}"
                     table.add_row(
-                        "  [dim]└ (no worktrees)[/dim]",
+                        f"  [dim]{prefix}[/dim] [dim]{win['name']}[/dim]",
                         "",
                         "",
                         "",
-                        "",
-                        key=f"wt-empty:{session['id']}",
+                        detail,
+                        key=f"win:{session['name']}:{win['index']}",
                     )
 
         if self._sessions:
@@ -189,21 +191,21 @@ class SessionListScreen(Screen):
             return None
         return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
 
-    def _is_worktree_row(self, row_key: str) -> bool:
-        return row_key.startswith("wt:")
+    def _is_child_row(self, row_key: str) -> bool:
+        return row_key.startswith("wt:") or row_key.startswith("win:")
 
     def action_select(self) -> None:
         row_key = self._current_row_key()
-        if row_key is None or self._is_worktree_row(row_key):
+        if row_key is None or self._is_child_row(row_key):
             return
         self._switch_to_session(row_key)
 
     def action_toggle_expand(self) -> None:
         row_key = self._current_row_key()
-        if row_key is None or self._is_worktree_row(row_key):
+        if row_key is None or self._is_child_row(row_key):
             return
         session = self._session_for_row_key(row_key)
-        if session is None or not session["managed"]:
+        if session is None or not session["live"]:
             return
         if row_key in self._expanded:
             self._expanded.discard(row_key)
@@ -239,7 +241,7 @@ class SessionListScreen(Screen):
     def _current_session(self) -> dict | None:
         """Get the session for the current row, or None if on a worktree row."""
         row_key = self._current_row_key()
-        if row_key is None or self._is_worktree_row(row_key):
+        if row_key is None or self._is_child_row(row_key):
             return None
         return self._session_for_row_key(row_key)
 

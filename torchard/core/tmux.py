@@ -95,6 +95,23 @@ def rename_session(old_name: str, new_name: str) -> None:
         )
 
 
+def list_windows(session_name: str) -> list[dict]:
+    """Return windows in a session with index, name, and current path."""
+    result = _run([
+        "tmux", "list-windows", "-t", session_name,
+        "-F", "#{window_index}\t#{window_name}\t#{pane_current_path}",
+    ])
+    if result.returncode != 0:
+        return []
+    windows = []
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        index, name, path = line.split("\t")
+        windows.append({"index": int(index), "name": name, "path": path})
+    return windows
+
+
 def kill_session(session_name: str) -> None:
     """Kill the named tmux session."""
     result = _run(["tmux", "kill-session", "-t", session_name])
