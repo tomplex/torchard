@@ -97,7 +97,7 @@ class TestCreateSession:
         assert len(get_sessions(conn)) == 2
 
     def test_returns_session_object(self, mgr):
-        with _patch_git_detect(), _patch_tmux_new_session():
+        with _patch_git_detect(), _patch_tmux_new_session(), _patch_git_create_worktree():
             session = mgr.create_session(REPO_PATH, "feature", SESSION_NAME)
         assert isinstance(session, Session)
         assert session.base_branch == "feature"

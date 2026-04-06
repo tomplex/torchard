@@ -63,12 +63,27 @@ class Manager:
     # ------------------------------------------------------------------
 
     def create_session(self, repo_path: str, base_branch: str, session_name: str) -> Session:
-        """Register repo if needed, create DB session, create tmux session."""
+        """Register repo if needed, create worktree, create DB session, create tmux session."""
         repo = self._get_repo_by_path(repo_path)
         if repo is None:
             default_branch = git.detect_default_branch(repo_path)
             name = Path(repo_path).name
             repo = add_repo(self._conn, Repo(path=repo_path, name=name, default_branch=default_branch))
+
+        # If the base branch is the repo's default branch, start in the repo root.
+        # Otherwise create a worktree for the feature branch.
+        default = repo.default_branch
+        if base_branch == default:
+            start_dir = repo_path
+        else:
+            worktree_path = str(Path.home() / "dev" / "worktrees" / repo.name / base_branch)
+            try:
+                git.create_worktree(repo_path, worktree_path, base_branch, default)
+            except git.GitError:
+                # Branch/worktree may already exist - use it if the dir is there
+                if not Path(worktree_path).exists():
+                    raise
+            start_dir = worktree_path
 
         session = add_session(
             self._conn,
@@ -80,7 +95,21 @@ class Manager:
             ),
         )
 
-        tmux.new_session(session_name, repo_path)
+        tmux.new_session(session_name, start_dir)
+
+        # Record worktree if we created one
+        if start_dir != repo_path:
+            add_worktree(
+                self._conn,
+                Worktree(
+                    repo_id=repo.id,
+                    path=start_dir,
+                    branch=base_branch,
+                    session_id=session.id,
+                    created_at=_now(),
+                ),
+            )
+
         return session
 
     def adopt_session(self, session_name: str, repo_path: str, base_branch: str) -> Session:
