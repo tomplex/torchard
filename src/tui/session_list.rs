@@ -729,9 +729,36 @@ impl SessionListScreen {
         ScreenAction::None
     }
 
-    fn action_review(&self, manager: &Manager) -> ScreenAction {
-        let screen = super::review::ReviewScreen::new(manager);
-        ScreenAction::Push(Screen::Review(screen))
+    fn action_review(&mut self, manager: &Manager) -> ScreenAction {
+        let mut repos = manager.get_repos();
+        if repos.is_empty() {
+            self.status_message = Some("No repos configured.".to_string());
+            return ScreenAction::None;
+        }
+        // Sort by most recently active session
+        let sessions = manager.get_sessions();
+        let mut repo_last_active: HashMap<i64, String> = HashMap::new();
+        for s in &sessions {
+            if let Some(ref ts) = s.last_selected_at {
+                let id = s.repo_id;
+                if !repo_last_active.contains_key(&id) || ts > repo_last_active.get(&id).unwrap() {
+                    repo_last_active.insert(id, ts.clone());
+                }
+            }
+        }
+        repos.sort_by(|a, b| {
+            let a_ts = a.id.and_then(|id| repo_last_active.get(&id));
+            let b_ts = b.id.and_then(|id| repo_last_active.get(&id));
+            b_ts.cmp(&a_ts)
+        });
+
+        self.inline_mode = InlineMode::Review {
+            input: String::new(),
+            cursor: 0,
+            repo_index: 0,
+            repos,
+        };
+        ScreenAction::None
     }
 
     fn action_delete(&mut self, _manager: &Manager) -> ScreenAction {
@@ -1119,6 +1146,59 @@ impl SessionListScreen {
             _ => ScreenAction::None,
         }
     }
+
+    fn handle_review_key(&mut self, code: KeyCode, modifiers: crossterm::event::KeyModifiers, manager: &mut Manager) -> ScreenAction {
+        match code {
+            KeyCode::Tab => {
+                if let InlineMode::Review { repo_index, repos, .. } = &mut self.inline_mode {
+                    if repos.len() > 1 {
+                        *repo_index = (*repo_index + 1) % repos.len();
+                    }
+                }
+                ScreenAction::None
+            }
+            KeyCode::Enter => {
+                let (input, repo) = match &self.inline_mode {
+                    InlineMode::Review { input, repo_index, repos, .. } => {
+                        (input.trim().to_string(), repos.get(*repo_index).cloned())
+                    }
+                    _ => return ScreenAction::None,
+                };
+                let repo = match repo {
+                    Some(r) => r,
+                    None => return ScreenAction::None,
+                };
+                if input.is_empty() {
+                    self.status_message = Some("Please enter a PR number or branch name.".to_string());
+                    return ScreenAction::None;
+                }
+                self.inline_mode = InlineMode::None;
+
+                match manager.checkout_and_review(&repo.path, &input) {
+                    Ok((session, _worktree_path)) => {
+                        ScreenAction::Switch(SwitchAction::Session {
+                            target: session.name,
+                        })
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Error: {}", e));
+                        ScreenAction::None
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                self.inline_mode = InlineMode::None;
+                ScreenAction::None
+            }
+            _ => {
+                use super::rename::input_handle_key;
+                if let InlineMode::Review { input, cursor, .. } = &mut self.inline_mode {
+                    input_handle_key(input, cursor, code, modifiers);
+                }
+                ScreenAction::None
+            }
+        }
+    }
 }
 
 impl ScreenBehavior for SessionListScreen {
@@ -1235,6 +1315,25 @@ impl ScreenBehavior for SessionListScreen {
                     f.render_widget(input_widget, input_area);
                 }
             }
+            InlineMode::Review { ref input, cursor: cursor_pos, repo_index, ref repos } => {
+                let repo_name = repos.get(*repo_index).map(|r| r.name.as_str()).unwrap_or("?");
+                let prefix = format!("Review ({}): ", repo_name);
+                let suffix = if repos.len() > 1 { "  [tab] cycle repo  [esc] cancel" } else { "  [esc] cancel" };
+
+                let before: String = input.chars().take(*cursor_pos).collect();
+                let cursor_char = input.chars().nth(*cursor_pos).unwrap_or(' ');
+                let after: String = input.chars().skip(*cursor_pos + 1).collect();
+
+                let spans = vec![
+                    Span::styled(&prefix, Style::default().fg(theme::ACCENT)),
+                    Span::styled(&before, Style::default().fg(theme::TEXT)),
+                    Span::styled(cursor_char.to_string(), Style::default().fg(theme::BG).bg(theme::ACCENT)),
+                    Span::styled(&after, Style::default().fg(theme::TEXT)),
+                    Span::styled(suffix, Style::default().fg(theme::TEXT_DIM)),
+                ];
+                let status = Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::BG));
+                f.render_widget(status, chunks[2]);
+            }
             _ => {} // Other modes rendered in later tasks
         }
 
@@ -1279,6 +1378,7 @@ impl ScreenBehavior for SessionListScreen {
             InlineMode::None => {}
             InlineMode::Confirm { .. } => return self.handle_confirm_key(*code, manager),
             InlineMode::Rename { .. } => return self.handle_rename_key(*code, *modifiers, manager),
+            InlineMode::Review { .. } => return self.handle_review_key(*code, *modifiers, manager),
             _ => return ScreenAction::None,
         }
 
