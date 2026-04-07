@@ -546,7 +546,7 @@ impl SessionListScreen {
         })
     }
 
-    fn handle_tab(&mut self, manager: &Manager) {
+    fn handle_expand(&mut self, manager: &Manager) {
         let key = match self.current_row_key() {
             Some(k) => k,
             None => return,
@@ -561,12 +561,36 @@ impl SessionListScreen {
         if !session.live {
             return;
         }
+        if !self.expanded.contains(&key) {
+            self.expanded.insert(key.clone());
+            self.refresh_with_restore(manager, Some(&key));
+        }
+    }
+
+    fn handle_collapse(&mut self, manager: &Manager) {
+        let key = match self.current_row_key() {
+            Some(k) => k,
+            None => return,
+        };
+        // If on a child row, collapse the parent
+        if Self::is_child_row(&key) {
+            // Find the parent session key by looking backward in rows
+            if let Some(cursor) = self.table_state.selected() {
+                for i in (0..cursor).rev() {
+                    if let RowKind::Session { row_key } = &self.rows[i].kind {
+                        let key = row_key.clone();
+                        self.expanded.remove(&key);
+                        self.refresh_with_restore(manager, Some(&key));
+                        return;
+                    }
+                }
+            }
+            return;
+        }
         if self.expanded.contains(&key) {
             self.expanded.remove(&key);
-        } else {
-            self.expanded.insert(key.clone());
+            self.refresh_with_restore(manager, Some(&key));
         }
-        self.refresh_with_restore(manager, Some(&key));
     }
 
     // ------------------------------------------------------------------
@@ -636,6 +660,49 @@ impl SessionListScreen {
         self.pending_action = PendingAction::NewPicker;
         let menu = super::action_menu::ActionMenuScreen::new("New\u{2026}".to_string(), items);
         ScreenAction::Push(Screen::ActionMenu(menu))
+    }
+
+    fn action_rename(&self, manager: &Manager) -> ScreenAction {
+        let row_key = match self.current_row_key() {
+            Some(k) => k,
+            None => return ScreenAction::None,
+        };
+
+        // Rename tab
+        if row_key.starts_with("win:") {
+            let parts: Vec<&str> = row_key.splitn(3, ':').collect();
+            if parts.len() == 3 {
+                let session_name = parts[1].to_string();
+                let window_index: i64 = parts[2].parse().unwrap_or(0);
+                let windows = tmux::list_windows(&session_name);
+                if let Some(win) = windows.iter().find(|w| w.index == window_index) {
+                    let screen = super::rename::RenameWindowScreen::new(
+                        session_name,
+                        window_index,
+                        win.name.clone(),
+                    );
+                    return ScreenAction::Push(Screen::RenameWindow(screen));
+                }
+            }
+            return ScreenAction::None;
+        }
+
+        // Rename session
+        let session = match self.current_session() {
+            Some(s) => s.clone(),
+            None => return ScreenAction::None,
+        };
+        if session.managed {
+            if let Some(id) = session.id {
+                let screen = super::rename::RenameSessionScreen::new(
+                    manager,
+                    id,
+                    session.name.clone(),
+                );
+                return ScreenAction::Push(Screen::RenameSession(screen));
+            }
+        }
+        ScreenAction::None
     }
 
     fn action_review(&self, manager: &Manager) -> ScreenAction {
@@ -927,11 +994,12 @@ impl SessionListScreen {
             ("q", "Quit"),
             ("/", "Filter"),
             ("enter", "Switch"),
-            ("tab", "Expand"),
+            ("h/l", "Collapse/Expand"),
             ("n", "New"),
-            ("r", "Review"),
+            ("r", "Rename"),
+            ("R", "Review"),
             ("d", "Delete"),
-            ("h", "History"),
+            ("H", "History"),
             (".", "Actions"),
             ("c", "Cleanup"),
             ("S", "Settings"),
@@ -1076,15 +1144,20 @@ impl ScreenBehavior for SessionListScreen {
                 ScreenAction::None
             }
             KeyCode::Enter => self.handle_enter(manager),
-            KeyCode::Tab => {
-                self.handle_tab(manager);
+            KeyCode::Tab | KeyCode::Char('l') | KeyCode::Right => {
+                self.handle_expand(manager);
+                ScreenAction::None
+            }
+            KeyCode::Char('h') | KeyCode::Left => {
+                self.handle_collapse(manager);
                 ScreenAction::None
             }
             KeyCode::Char('n') => self.action_new_picker(manager),
-            KeyCode::Char('r') => self.action_review(manager),
+            KeyCode::Char('r') => self.action_rename(manager),
+            KeyCode::Char('R') => self.action_review(manager),
             KeyCode::Char('d') => self.action_delete(manager),
             KeyCode::Char('.') => self.action_action_menu(manager),
-            KeyCode::Char('h') => self.action_history(manager),
+            KeyCode::Char('H') => self.action_history(manager),
             KeyCode::Char('c') => self.action_cleanup(manager),
             KeyCode::Char('S') => self.action_settings(manager),
             KeyCode::Char('?') => self.action_help(),
