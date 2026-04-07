@@ -19,7 +19,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use crossterm::event::{self, Event};
-use ratatui::{prelude::*, widgets::*};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Clear, Widget};
 
 use crate::manager::Manager;
 use crate::models::*;
@@ -205,10 +206,9 @@ impl App {
             if is_top {
                 screen.behavior().render(f, area, &self.manager);
             } else if i + 1 < self.screen_stack.len() && self.screen_stack[i + 1].behavior().is_modal() {
-                // Render parent of a modal, then overlay a dark background.
-                // ratatui doesn't support alpha blending, so this is a solid dark overlay
-                // rather than a true dim. This is acceptable — the modal draws on top anyway.
+                // Render parent of a modal, then clear and overlay a dark background.
                 screen.behavior().render(f, area, &self.manager);
+                f.render_widget(Clear, area);
                 let dim = Block::default().style(Style::default().bg(Color::Rgb(0x0d, 0x0d, 0x1a)));
                 f.render_widget(dim, area);
             }

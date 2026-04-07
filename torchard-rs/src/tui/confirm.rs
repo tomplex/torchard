@@ -89,10 +89,10 @@ impl ScreenBehavior for ConfirmScreen {
     fn handle_event(&mut self, event: &Event, _manager: &mut Manager) -> ScreenAction {
         if let Event::Key(KeyEvent { code, kind: KeyEventKind::Press, .. }) = event {
             match code {
-                KeyCode::Char('y') => {
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
                     return ScreenAction::PopWith(ActionResult::Confirmed(true));
                 }
-                KeyCode::Char('n') | KeyCode::Esc => {
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                     return ScreenAction::PopWith(ActionResult::Confirmed(false));
                 }
                 _ => {}
