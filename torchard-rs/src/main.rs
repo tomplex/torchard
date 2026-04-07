@@ -1,4 +1,6 @@
 // torchard-rs/src/main.rs
+mod claude_session;
+mod conversation_index;
 mod db;
 mod fuzzy;
 mod git;
