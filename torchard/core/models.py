@@ -28,3 +28,18 @@ class Worktree:
     session_id: int | None = None
     tmux_window: int | None = None
     id: int | None = None
+
+
+@dataclass
+class SessionInfo:
+    """A session enriched with live tmux state, returned by Manager.list_sessions."""
+    id: int | None
+    name: str
+    repo_id: int | None
+    base_branch: str | None
+    created_at: str | None
+    last_selected_at: str | None
+    windows: int | None
+    attached: bool
+    live: bool
+    managed: bool

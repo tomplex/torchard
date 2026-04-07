@@ -2,28 +2,18 @@
 
 from __future__ import annotations
 
-import re
-import subprocess
+from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Input, Static
 
-from torchard.core.db import get_repos, get_sessions
-from torchard.core.history import Conversation, filter_by_paths, parse_index
+from torchard.core import tmux
+from torchard.core.conversation_index import Conversation, filter_by_paths, parse_index
 from torchard.core.manager import Manager
 from torchard.tui.switch import write_switch
-
-
-def _safe_id(text: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", text)
-
-
-def _truncate(text: str, max_len: int) -> str:
-    if len(text) <= max_len:
-        return text
-    return text[: max_len - 1] + "…"
+from torchard.tui.utils import truncate_end
 
 
 class HistoryScreen(Screen):
@@ -107,12 +97,12 @@ class HistoryScreen(Screen):
 
         for i, entry in enumerate(entries):
             # Shorten project path
-            proj = entry.project.replace("/Users/tom/", "~/")
+            proj = entry.project.replace(str(Path.home()) + "/", "~/")
             table.add_row(
                 entry.date,
-                _truncate(proj, 40),
-                _truncate(entry.branch, 20),
-                _truncate(entry.summary, 50),
+                truncate_end(proj, 40),
+                truncate_end(entry.branch, 20),
+                truncate_end(entry.summary, 50),
                 key=str(i),
             )
 
@@ -175,8 +165,8 @@ class HistoryScreen(Screen):
         entry = self._displayed[idx]
 
         # Find if this project dir belongs to an existing managed session
-        sessions = get_sessions(self._manager._conn)
-        repos = {r.id: r for r in get_repos(self._manager._conn)}
+        sessions = self._manager.get_sessions()
+        repos = {r.id: r for r in self._manager.get_repos()}
         target_session = None
 
         for s in sessions:
@@ -185,8 +175,7 @@ class HistoryScreen(Screen):
                 target_session = s.name
                 break
             # Check worktree paths too
-            from torchard.core.db import get_worktrees_for_session
-            for wt in get_worktrees_for_session(self._manager._conn, s.id):
+            for wt in self._manager.get_worktrees_for_session(s.id):
                 if entry.project.startswith(wt.path):
                     target_session = s.name
                     break
@@ -198,30 +187,21 @@ class HistoryScreen(Screen):
 
         if target_session:
             # Open in existing session
-            from torchard.core import tmux
-            subprocess.run([
-                "tmux", "new-window", "-t", target_session,
-                "-n", f"resume-{session_id[:8]}",
-                "-c", entry.project,
-            ])
-            subprocess.run([
-                "tmux", "send-keys", "-t",
-                f"{target_session}:resume-{session_id[:8]}",
-                resume_cmd, "Enter",
-            ])
+            try:
+                window_name = f"resume-{session_id[:8]}"
+                tmux.new_window(target_session, window_name, entry.project)
+                tmux.send_keys(f"{target_session}:{window_name}", resume_cmd, "Enter")
+            except tmux.TmuxError:
+                pass
             write_switch({"type": "session", "target": target_session})
         else:
             # Create a new tmux session
             session_name = f"resume-{session_id[:8]}"
-            subprocess.run([
-                "tmux", "new-session", "-d",
-                "-s", session_name,
-                "-c", entry.project,
-            ])
-            subprocess.run([
-                "tmux", "send-keys", "-t", session_name,
-                resume_cmd, "Enter",
-            ])
+            try:
+                tmux.new_session(session_name, entry.project)
+                tmux.send_keys(session_name, resume_cmd, "Enter")
+            except tmux.TmuxError:
+                pass
             write_switch({"type": "session", "target": session_name})
 
         self.app.exit()
@@ -242,34 +222,5 @@ class HistoryScreen(Screen):
         dock: top;
         margin: 0 1;
         height: 3;
-    }
-    DataTable {
-        background: #1a1a2e;
-        color: #e0e0e0;
-        height: 1fr;
-    }
-    DataTable > .datatable--header {
-        background: #16213e;
-        color: #00aaff;
-        text-style: bold;
-    }
-    DataTable > .datatable--cursor {
-        background: #0f3460;
-        color: #ffffff;
-    }
-    DataTable > .datatable--hover {
-        background: #16213e;
-    }
-    Footer {
-        background: #16213e;
-        color: #aaaaaa;
-    }
-    Footer > .footer--highlight {
-        background: #0f3460;
-        color: #00aaff;
-    }
-    Footer > .footer--key {
-        color: #00aaff;
-        text-style: bold;
     }
     """

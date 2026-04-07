@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
-import re
-
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, ListItem, ListView, Static
 
-from torchard.core.db import get_repos
 from torchard.core.git import GitError, list_branches
 from torchard.core.manager import Manager
-
-
-def _safe_id(text: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", text)
+from torchard.tui.utils import safe_id
 
 
 class EditBranchScreen(Screen):
@@ -89,14 +83,13 @@ class EditBranchScreen(Screen):
         )
 
         # Find the repo for this session
-        from torchard.core.db import get_sessions
-        sessions = get_sessions(self._manager._conn)
+        sessions = self._manager.get_sessions()
         session = next((s for s in sessions if s.id == self._session_id), None)
         if session is None:
             self.query_one("#editbranch-error", Static).update("[red]Session not found[/red]")
             return
 
-        repos = {r.id: r for r in get_repos(self._manager._conn)}
+        repos = {r.id: r for r in self._manager.get_repos()}
         repo = repos.get(session.repo_id)
         if repo is None:
             self.query_one("#editbranch-error", Static).update("[red]Repo not found[/red]")
@@ -118,7 +111,7 @@ class EditBranchScreen(Screen):
         lv = self.query_one("#editbranch-list", ListView)
         lv.clear()
         for branch in branches:
-            widget_id = f"branch-{_safe_id(branch)}-{seq}"
+            widget_id = f"branch-{safe_id(branch)}-{seq}"
             self._id_to_branch[widget_id] = branch
             lv.append(ListItem(Label(branch), id=widget_id))
         if query and query not in branches:
@@ -161,7 +154,7 @@ class EditBranchScreen(Screen):
     def _apply(self, branch: str) -> None:
         try:
             self._manager.set_base_branch(self._session_id, branch)
-        except Exception as exc:
+        except ValueError as exc:
             self.query_one("#editbranch-error", Static).update(f"[red]{exc}[/red]")
             return
         self.app.pop_screen()

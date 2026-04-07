@@ -7,9 +7,11 @@ from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Static
 
-from torchard.core.db import get_sessions, get_worktrees
+from torchard.core import git, tmux
+from torchard.core.db import get_worktrees
 from torchard.core.manager import Manager
 from torchard.core.models import Session, Worktree
+from torchard.tui.utils import truncate_start
 from torchard.tui.views.confirm import ConfirmModal
 
 
@@ -46,7 +48,7 @@ class CleanupScreen(Screen):
 
     def on_mount(self) -> None:
         # Build session map
-        sessions: list[Session] = get_sessions(self._manager._conn)
+        sessions: list[Session] = self._manager.get_sessions()
         session_by_id: dict[int, Session] = {s.id: s for s in sessions if s.id is not None}
 
         # Load worktrees
@@ -83,7 +85,7 @@ class CleanupScreen(Screen):
                 "\\[ ]",
                 wt.branch,
                 session_label,
-                _truncate(wt.path, 50),
+                truncate_start(wt.path, 50),
                 "[dim]checking…[/dim]",
                 key=key,
             )
@@ -180,7 +182,7 @@ class CleanupScreen(Screen):
                 try:
                     self._manager.cleanup_worktree(wt.id)
                     deleted_keys.append(key)
-                except Exception as exc:
+                except (git.GitError, tmux.TmuxError) as exc:
                     errors.append(f"{wt.branch}: {exc}")
 
             table = self.query_one(DataTable)
@@ -220,35 +222,6 @@ class CleanupScreen(Screen):
         padding: 0 2 1 2;
         height: 1;
     }
-    DataTable {
-        background: #1a1a2e;
-        color: #e0e0e0;
-        height: 1fr;
-    }
-    DataTable > .datatable--header {
-        background: #16213e;
-        color: #00aaff;
-        text-style: bold;
-    }
-    DataTable > .datatable--cursor {
-        background: #0f3460;
-        color: #ffffff;
-    }
-    DataTable > .datatable--hover {
-        background: #16213e;
-    }
-    Footer {
-        background: #16213e;
-        color: #aaaaaa;
-    }
-    Footer > .footer--highlight {
-        background: #0f3460;
-        color: #00aaff;
-    }
-    Footer > .footer--key {
-        color: #00aaff;
-        text-style: bold;
-    }
     """
 
 
@@ -260,7 +233,3 @@ def _make_status(wt: Worktree, is_stale: bool) -> str:
     return "[yellow]stale[/yellow]"
 
 
-def _truncate(text: str, max_len: int) -> str:
-    if len(text) <= max_len:
-        return text
-    return "…" + text[-(max_len - 1):]

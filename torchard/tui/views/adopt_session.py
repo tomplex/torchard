@@ -10,17 +10,11 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, ListItem, ListView, Static
 
-import re
-
-from torchard.core.db import get_repos
+from torchard.core import tmux
 from torchard.core.git import GitError, list_branches
 from torchard.core.manager import Manager
 from torchard.core.models import Repo
-
-
-def _safe_id(text: str) -> str:
-    """Sanitize a string for use as a textual widget ID."""
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", text)
+from torchard.tui.utils import safe_id
 
 
 class AdoptSessionScreen(Screen):
@@ -113,7 +107,7 @@ class AdoptSessionScreen(Screen):
         fi = self.query_one("#adopt-filter", Input)
         fi.placeholder = "Filter repos…"
         fi.value = ""
-        self._repos = get_repos(self._manager._conn)
+        self._repos = self._manager.get_repos()
         self._populate_repo_list(self._repos)
         fi.focus()
 
@@ -148,7 +142,7 @@ class AdoptSessionScreen(Screen):
         lv = self.query_one("#adopt-list", ListView)
         lv.clear()
         for branch in branches:
-            widget_id = f"branch-{_safe_id(branch)}-{seq}"
+            widget_id = f"branch-{safe_id(branch)}-{seq}"
             self._id_to_branch[widget_id] = branch
             lv.append(ListItem(Label(branch), id=widget_id))
         if query and query not in branches:
@@ -225,7 +219,7 @@ class AdoptSessionScreen(Screen):
                 repo_path=self._selected_repo.path,
                 base_branch=base_branch,
             )
-        except Exception as exc:
+        except (GitError, tmux.TmuxError) as exc:
             self._set_error(f"Error: {exc}")
             return
         self.app.pop_screen()

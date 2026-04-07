@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -11,13 +9,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Input, Static
 
 from torchard.core import tmux
-from torchard.core.db import get_session_by_name
 from torchard.core.manager import Manager
-
-
-def _sanitize_for_tmux(name: str) -> str:
-    name = re.sub(r"[.:]", "-", name)
-    return name.strip(" -")
 
 
 class RenameSessionScreen(Screen):
@@ -53,7 +45,7 @@ class RenameSessionScreen(Screen):
         inp.focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        name = _sanitize_for_tmux(event.value.strip())
+        name = tmux.sanitize_session_name(event.value.strip())
         error = self.query_one("#rename-error", Static)
 
         if not name:
@@ -62,13 +54,13 @@ class RenameSessionScreen(Screen):
         if name == self._current_name:
             self.app.pop_screen()
             return
-        existing = get_session_by_name(self._manager._conn, name)
+        existing = self._manager.get_session_by_name(name)
         if existing is not None:
             error.update(f"[red]Session '{name}' already exists.[/red]")
             return
         try:
             self._manager.rename_session(self._session_id, name)
-        except Exception as exc:
+        except (ValueError, tmux.TmuxError) as exc:
             error.update(f"[red]{exc}[/red]")
             return
         self.app.pop_screen()
@@ -149,7 +141,7 @@ class RenameWindowScreen(Screen):
             return
         try:
             tmux.rename_window(self._session_name, self._window_index, name)
-        except Exception as exc:
+        except tmux.TmuxError as exc:
             error.update(f"[red]{exc}[/red]")
             return
         self.app.pop_screen()

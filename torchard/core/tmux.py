@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
+
+
+def sanitize_session_name(name: str) -> str:
+    """Remove/replace characters not allowed in tmux session names."""
+    name = re.sub(r"[.:]", "-", name)
+    name = name.strip(" -")
+    return name or "new-session"
 
 
 class TmuxError(Exception):
     """Raised when a tmux command fails."""
 
 
-def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
+def _run(args: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(
         args,
         capture_output=True,
