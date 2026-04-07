@@ -13,6 +13,7 @@ from textual.containers import Vertical
 
 from torchard.core import tmux
 from torchard.core.db import get_repos, get_worktrees_for_session, touch_session
+from torchard.core.fuzzy import fuzzy_match
 from torchard.core.manager import Manager
 from torchard.tui.switch import write_switch
 from torchard.tui.views.adopt_session import AdoptSessionScreen
@@ -204,15 +205,24 @@ class SessionListScreen(Screen):
         table = self.query_one(DataTable)
         table.clear()
 
-        for session in self._sessions:
-            # Filter
-            if self._filter:
-                name_match = self._filter in session["name"].lower()
+        # Apply fuzzy filter if active
+        if self._filter:
+            scored: list[tuple[dict, int]] = []
+            for session in self._sessions:
                 repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
-                repo_match = repo and self._filter in repo.name.lower()
-                branch_match = session["base_branch"] and self._filter in session["base_branch"].lower()
-                if not (name_match or repo_match or branch_match):
-                    continue
+                # Match against name, repo, or branch
+                candidates = [session["name"], repo.name if repo else "", session["base_branch"] or ""]
+                best = None
+                for c in candidates:
+                    s = fuzzy_match(self._filter, c)
+                    if s is not None and (best is None or s < best):
+                        best = s
+                if best is not None:
+                    scored.append((session, best))
+            scored.sort(key=lambda x: x[1])
+            self._sessions = [s for s, _ in scored]
+
+        for session in self._sessions:
             repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
             repo_name = repo.name if repo else "-"
             branch = session["base_branch"] or "-"
