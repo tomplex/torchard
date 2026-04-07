@@ -441,8 +441,14 @@ impl Manager {
             .get_repo_by_id(wt.repo_id)
             .ok_or_else(|| format!("Repo {} not found", wt.repo_id))?;
 
-        git::remove_worktree(&repo.path, &wt.path)
-            .map_err(|e| format!("Failed to remove worktree: {}", e))?;
+        // Try to remove the git worktree; if it fails (e.g. directory already gone),
+        // still delete the DB record
+        if let Err(e) = git::remove_worktree(&repo.path, &wt.path) {
+            // If the directory doesn't exist, just clean up the DB record
+            if std::path::Path::new(&wt.path).exists() {
+                return Err(format!("Failed to remove worktree: {}", e));
+            }
+        }
         db::delete_worktree(&self.conn, worktree_id);
 
         Ok(())
