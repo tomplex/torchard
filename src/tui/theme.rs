@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/theme.rs
+// trellis/src/tui/theme.rs
 
 use ratatui::style::{Color, Modifier, Style};
 

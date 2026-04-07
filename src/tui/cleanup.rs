@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/cleanup.rs — worktree cleanup screen
+// trellis/src/tui/cleanup.rs — worktree cleanup screen
 
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;

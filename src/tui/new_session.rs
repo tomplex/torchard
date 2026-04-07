@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/new_session.rs — multi-step wizard for creating a new session
+// trellis/src/tui/new_session.rs — multi-step wizard for creating a new session
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::prelude::*;

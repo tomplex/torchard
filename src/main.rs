@@ -1,4 +1,4 @@
-// torchard-rs/src/main.rs
+// trellis/src/main.rs
 mod models;
 mod db;
 mod tmux;
@@ -14,10 +14,10 @@ mod tui;
 fn main() {
     switch::cleanup();
 
-    // Match Python's _DEFAULT_DB_PATH: ~/.local/share/torchard/torchard.db
+    // DB path: ~/.local/share/trellis/trellis.db
     let db_path = dirs::home_dir()
         .expect("no home dir")
-        .join(".local/share/torchard/torchard.db");
+        .join(".local/share/trellis/trellis.db");
     let first_run = !db_path.exists();
     let conn = db::init_db(&db_path);
     #[allow(unused_mut)]

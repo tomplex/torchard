@@ -1,4 +1,4 @@
-// torchard-rs/src/conversation_index.rs
+// trellis/src/conversation_index.rs
 
 use regex::Regex;
 use std::fs;
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn parse_index_entries() {
-        let tmp = std::env::temp_dir().join("torchard-test-index.md");
+        let tmp = std::env::temp_dir().join("trellis-test-index.md");
         let mut f = fs::File::create(&tmp).unwrap();
         f.write_all(sample_index().as_bytes()).unwrap();
 

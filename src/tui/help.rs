@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/help.rs
+// trellis/src/tui/help.rs
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::prelude::*;
@@ -13,7 +13,7 @@ pub struct HelpScreen;
 fn help_lines() -> Vec<Line<'static>> {
     vec![
         Line::from(vec![
-            Span::styled("torchard", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled("trellis", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
             Span::styled(" — tmux session & worktree manager", Style::default().fg(theme::TEXT)),
         ]),
         Line::from(""),

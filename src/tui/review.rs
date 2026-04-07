@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/review.rs — checkout a PR or branch into a worktree
+// trellis/src/tui/review.rs — checkout a PR or branch into a worktree
 
 use std::collections::HashMap;
 

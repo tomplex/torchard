@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/rename.rs
+// trellis/src/tui/rename.rs
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::prelude::*;

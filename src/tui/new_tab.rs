@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/new_tab.rs
+// trellis/src/tui/new_tab.rs
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::prelude::*;

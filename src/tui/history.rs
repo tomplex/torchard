@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/history.rs — conversation history browser
+// trellis/src/tui/history.rs — conversation history browser
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::prelude::*;

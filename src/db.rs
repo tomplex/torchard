@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn init_db_creates_schema() {
         let tmp = std::env::temp_dir().join(format!(
-            "torchard-test-init-{}.db",
+            "trellis-test-init-{}.db",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&tmp);

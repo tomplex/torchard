@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/session_list.rs
+// trellis/src/tui/session_list.rs
 
 use std::collections::{HashMap, HashSet};
 
@@ -745,7 +745,7 @@ impl SessionListScreen {
         };
 
         if session.managed {
-            let mut msg = "Remove from torchard.".to_string();
+            let mut msg = "Remove from trellis.".to_string();
             if session.live {
                 msg.push_str(" The tmux session will also be killed.");
             }
@@ -819,7 +819,7 @@ impl SessionListScreen {
             items.push((
                 "adopt".to_string(),
                 "Adopt session".to_string(),
-                "bring under torchard management".to_string(),
+                "bring under trellis management".to_string(),
             ));
         }
 

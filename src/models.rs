@@ -1,4 +1,4 @@
-// torchard-rs/src/models.rs
+// trellis/src/models.rs
 
 #[derive(Debug, Clone)]
 pub struct Repo {

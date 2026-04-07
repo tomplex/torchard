@@ -12,7 +12,7 @@ pub enum SwitchAction {
 }
 
 fn switch_path() -> PathBuf {
-    std::env::temp_dir().join("torchard-switch.json")
+    std::env::temp_dir().join("trellis-switch.json")
 }
 
 pub fn write_switch(action: &SwitchAction) {
@@ -35,7 +35,7 @@ mod tests {
     use super::*;
 
     fn test_switch_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("torchard-test-switch-{}.json", name))
+        std::env::temp_dir().join(format!("trellis-test-switch-{}.json", name))
     }
 
     #[test]

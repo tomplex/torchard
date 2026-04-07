@@ -1,10 +1,10 @@
 [package]
-name = "torchard"
+name = "trellis"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "torchard"
+name = "trellis"
 path = "src/main.rs"
 
 [dependencies]

@@ -1,4 +1,4 @@
-// torchard-rs/src/manager.rs
+// trellis/src/manager.rs
 //! High-level orchestration: ties DB, tmux, and git together.
 
 use std::collections::{HashMap, HashSet};
@@ -229,7 +229,7 @@ impl Manager {
         session
     }
 
-    /// Adopt an existing tmux session into torchard's management.
+    /// Adopt an existing tmux session into trellis's management.
     pub fn adopt_session(
         &self,
         session_name: &str,

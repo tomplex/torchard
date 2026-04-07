@@ -802,7 +802,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "torchard"
+name = "trellis"
 version = "0.1.0"
 dependencies = [
  "crossterm",

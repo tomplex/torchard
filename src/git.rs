@@ -1,4 +1,4 @@
-// torchard-rs/src/git.rs
+// trellis/src/git.rs
 
 use std::process::Command;
 

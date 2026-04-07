@@ -1,26 +1,26 @@
-# torchard
+# trellis
 
-TUI for managing tmux sessions and git worktrees together. Built with [textual](https://github.com/Textualize/textual).
+TUI for managing tmux sessions and git worktrees together.
 
-Each tmux session is bound to a repo and branch. New tabs within a session automatically create worktrees. torchard handles session creation, navigation, worktree lifecycle and cleanup from a single interface.
+Each tmux session is bound to a repo and branch. New tabs within a session automatically create worktrees. trellis handles session creation, navigation, worktree lifecycle and cleanup from a single interface.
 
 ## Install
 
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```
-git clone git@github.com:tomplex/torchard.git
-cd torchard
+git clone git@github.com:tomplex/trellis.git
+cd trellis
 uv sync
 ```
 
 Add a tmux keybind to launch it as a popup:
 
 ```tmux
-bind -n M-s display-popup -E -w 80% -h 70% "/path/to/torchard/.venv/bin/torchard"
+bind -n M-s display-popup -E -w 80% -h 70% "/path/to/trellis"
 ```
 
-On first launch, torchard scans your repos and worktrees directories (configurable via `S` settings) and discovers live tmux sessions.
+On first launch, trellis scans your repos and worktrees directories (configurable via `S` settings) and discovers live tmux sessions.
 
 ## What it does
 
@@ -62,4 +62,4 @@ On first launch, torchard scans your repos and worktrees directories (configurab
 
 ## Data
 
-Session and worktree metadata lives in `~/.local/share/torchard/torchard.db` (SQLite). Worktrees are created at `<worktrees_dir>/<repo-name>/<branch-name>` (default `~/dev/worktrees/`). Both directories are configurable in settings.
+Session and worktree metadata lives in `~/.local/share/trellis/trellis.db` (SQLite). Worktrees are created at `<worktrees_dir>/<repo-name>/<branch-name>` (default `~/dev/worktrees/`). Both directories are configurable in settings.

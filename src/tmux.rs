@@ -1,4 +1,4 @@
-// torchard-rs/src/tmux.rs
+// trellis/src/tmux.rs
 
 use std::collections::HashMap;
 use std::process::Command;

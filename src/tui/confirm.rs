@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/confirm.rs
+// trellis/src/tui/confirm.rs
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::prelude::*;

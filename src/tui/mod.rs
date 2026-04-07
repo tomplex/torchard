@@ -1,4 +1,4 @@
-// torchard-rs/src/tui/mod.rs
+// trellis/src/tui/mod.rs
 
 pub mod theme;
 pub mod session_list;
