@@ -5,7 +5,15 @@ pub mod session_list;
 pub mod action_menu;
 pub mod confirm;
 pub mod help;
-// Additional screen modules will be added in later tasks
+pub mod new_session;
+pub mod review;
+pub mod adopt_session;
+pub mod rename;
+pub mod edit_branch;
+pub mod new_tab;
+pub mod history;
+pub mod cleanup;
+pub mod settings;
 
 use std::sync::mpsc;
 use std::time::Duration;
@@ -51,13 +59,22 @@ pub trait ScreenBehavior {
     }
 }
 
-// All screen types — will grow as we add modules
+// All screen types
 pub enum Screen {
     SessionList(session_list::SessionListScreen),
     ActionMenu(action_menu::ActionMenuScreen),
     Confirm(confirm::ConfirmScreen),
     Help(help::HelpScreen),
-    // Remaining screens added in later tasks
+    NewSession(new_session::NewSessionScreen),
+    Review(review::ReviewScreen),
+    AdoptSession(adopt_session::AdoptSessionScreen),
+    RenameSession(rename::RenameSessionScreen),
+    RenameWindow(rename::RenameWindowScreen),
+    EditBranch(edit_branch::EditBranchScreen),
+    NewTab(new_tab::NewTabScreen),
+    History(history::HistoryScreen),
+    Cleanup(cleanup::CleanupScreen),
+    Settings(settings::SettingsScreen),
 }
 
 impl Screen {
@@ -67,6 +84,16 @@ impl Screen {
             Screen::ActionMenu(s) => s,
             Screen::Confirm(s) => s,
             Screen::Help(s) => s,
+            Screen::NewSession(s) => s,
+            Screen::Review(s) => s,
+            Screen::AdoptSession(s) => s,
+            Screen::RenameSession(s) => s,
+            Screen::RenameWindow(s) => s,
+            Screen::EditBranch(s) => s,
+            Screen::NewTab(s) => s,
+            Screen::History(s) => s,
+            Screen::Cleanup(s) => s,
+            Screen::Settings(s) => s,
         }
     }
 
@@ -76,6 +103,16 @@ impl Screen {
             Screen::ActionMenu(s) => s,
             Screen::Confirm(s) => s,
             Screen::Help(s) => s,
+            Screen::NewSession(s) => s,
+            Screen::Review(s) => s,
+            Screen::AdoptSession(s) => s,
+            Screen::RenameSession(s) => s,
+            Screen::RenameWindow(s) => s,
+            Screen::EditBranch(s) => s,
+            Screen::NewTab(s) => s,
+            Screen::History(s) => s,
+            Screen::Cleanup(s) => s,
+            Screen::Settings(s) => s,
         }
     }
 }

@@ -16,7 +16,7 @@ use crate::tmux::{self, TmuxWindow};
 use crate::utils::truncate_end;
 
 use super::theme;
-use super::{ScreenAction, ScreenBehavior};
+use super::{ActionResult, Screen, ScreenAction, ScreenBehavior};
 
 /// Identifies what a row represents.
 #[derive(Debug, Clone)]
@@ -130,6 +130,17 @@ fn is_version_number(s: &str) -> bool {
 // SessionListScreen
 // --------------------------------------------------------------------------
 
+/// Tracks which action we're waiting for a child screen result.
+#[derive(Debug, Clone)]
+enum PendingAction {
+    None,
+    NewPicker,
+    ActionMenu,
+    ConfirmDeleteTab { session_name: String, window_index: i64 },
+    ConfirmDeleteSession { session_id: i64 },
+    ConfirmKillSession { session_name: String },
+}
+
 pub struct SessionListScreen {
     sessions: Vec<SessionInfo>,
     repos: HashMap<i64, Repo>,
@@ -139,6 +150,7 @@ pub struct SessionListScreen {
     cursor: usize,
     rows: Vec<RowData>,
     table_state: TableState,
+    pending_action: PendingAction,
 }
 
 impl SessionListScreen {
@@ -152,6 +164,7 @@ impl SessionListScreen {
             cursor: 0,
             rows: Vec::new(),
             table_state: TableState::default(),
+            pending_action: PendingAction::None,
         };
         screen.refresh(manager);
         screen
@@ -602,6 +615,313 @@ impl SessionListScreen {
     // Rendering helpers
     // ------------------------------------------------------------------
 
+    // ------------------------------------------------------------------
+    // Actions
+    // ------------------------------------------------------------------
+
+    fn action_new_picker(&mut self, _manager: &Manager) -> ScreenAction {
+        let session = self.current_session();
+        let mut items = vec![
+            ("new-session".to_string(), "New session".to_string(), String::new()),
+        ];
+        if let Some(s) = session {
+            if s.managed {
+                items.push((
+                    "new-tab".to_string(),
+                    format!("New tab in {}", s.name),
+                    String::new(),
+                ));
+            }
+        }
+        self.pending_action = PendingAction::NewPicker;
+        let menu = super::action_menu::ActionMenuScreen::new("New\u{2026}".to_string(), items);
+        ScreenAction::Push(Screen::ActionMenu(menu))
+    }
+
+    fn action_review(&self, manager: &Manager) -> ScreenAction {
+        let screen = super::review::ReviewScreen::new(manager);
+        ScreenAction::Push(Screen::Review(screen))
+    }
+
+    fn action_delete(&mut self, _manager: &Manager) -> ScreenAction {
+        let key = match self.current_row_key() {
+            Some(k) => k,
+            None => return ScreenAction::None,
+        };
+
+        // Kill a tab
+        if key.starts_with("win:") {
+            let parts: Vec<&str> = key.splitn(3, ':').collect();
+            if parts.len() == 3 {
+                let session_name = parts[1].to_string();
+                let window_index: i64 = parts[2].parse().unwrap_or(0);
+                self.pending_action = PendingAction::ConfirmDeleteTab {
+                    session_name: session_name.clone(),
+                    window_index,
+                };
+                let confirm = super::confirm::ConfirmScreen::new(
+                    format!("Kill tab {} in '{}'?", window_index, session_name),
+                    "This will close the window and any processes in it.".to_string(),
+                );
+                return ScreenAction::Push(Screen::Confirm(confirm));
+            }
+        }
+
+        if Self::is_child_row(&key) {
+            return ScreenAction::None;
+        }
+
+        // Delete a session
+        let session = match self.session_for_row_key(&key) {
+            Some(s) => s.clone(),
+            None => return ScreenAction::None,
+        };
+
+        if session.managed {
+            let mut msg = "Remove from torchard.".to_string();
+            if session.live {
+                msg.push_str(" The tmux session will also be killed.");
+            }
+            self.pending_action = PendingAction::ConfirmDeleteSession {
+                session_id: session.id.unwrap(),
+            };
+            let confirm = super::confirm::ConfirmScreen::new(
+                format!("Delete session '{}'?", session.name),
+                msg,
+            );
+            ScreenAction::Push(Screen::Confirm(confirm))
+        } else {
+            self.pending_action = PendingAction::ConfirmKillSession {
+                session_name: session.name.clone(),
+            };
+            let confirm = super::confirm::ConfirmScreen::new(
+                format!("Kill tmux session '{}'?", session.name),
+                "This will close all windows in the session.".to_string(),
+            );
+            ScreenAction::Push(Screen::Confirm(confirm))
+        }
+    }
+
+    fn action_action_menu(&mut self, _manager: &Manager) -> ScreenAction {
+        let key = match self.current_row_key() {
+            Some(k) => k,
+            None => return ScreenAction::None,
+        };
+
+        // Tab-level actions
+        if key.starts_with("win:") {
+            let parts: Vec<&str> = key.splitn(3, ':').collect();
+            if parts.len() == 3 {
+                let session_name = parts[1];
+                let window_index: i64 = parts[2].parse().unwrap_or(0);
+                let windows = tmux::list_windows(session_name);
+                let mut items = Vec::new();
+                if let Some(win) = windows.iter().find(|w| w.index == window_index) {
+                    items.push((
+                        "rename-tab".to_string(),
+                        "Rename tab".to_string(),
+                        win.name.clone(),
+                    ));
+                }
+                self.pending_action = PendingAction::ActionMenu;
+                let menu = super::action_menu::ActionMenuScreen::new(
+                    "Tab actions".to_string(),
+                    items,
+                );
+                return ScreenAction::Push(Screen::ActionMenu(menu));
+            }
+        }
+
+        let session = match self.current_session() {
+            Some(s) => s.clone(),
+            None => return ScreenAction::None,
+        };
+
+        let mut items = Vec::new();
+        if session.managed {
+            items.push(("rename".to_string(), "Rename".to_string(), session.name.clone()));
+            items.push((
+                "branch".to_string(),
+                "Change branch".to_string(),
+                session.base_branch.clone().unwrap_or_default(),
+            ));
+            if session.live {
+                items.push(("claude".to_string(), "Launch claude".to_string(), String::new()));
+            }
+        } else if session.live {
+            items.push((
+                "adopt".to_string(),
+                "Adopt session".to_string(),
+                "bring under torchard management".to_string(),
+            ));
+        }
+
+        self.pending_action = PendingAction::ActionMenu;
+        let menu = super::action_menu::ActionMenuScreen::new(
+            format!("Actions \u{2014} {}", session.name),
+            items,
+        );
+        ScreenAction::Push(Screen::ActionMenu(menu))
+    }
+
+    fn action_history(&self, manager: &Manager) -> ScreenAction {
+        let session = self.current_session();
+        let mut scope_paths = None;
+        let mut scope_label = None;
+
+        if let Some(s) = session {
+            if s.managed {
+                if let Some(repo_id) = s.repo_id {
+                    if let Some(repo) = self.repos.get(&repo_id) {
+                        let mut paths = vec![repo.path.clone()];
+                        if let Some(id) = s.id {
+                            for wt in manager.get_worktrees_for_session(id) {
+                                paths.push(wt.path.clone());
+                            }
+                            // Include worktrees root for this repo
+                            let wt_root = manager.worktrees_dir().join(&repo.name);
+                            paths.push(wt_root.to_string_lossy().to_string());
+                        }
+                        scope_paths = Some(paths);
+                        scope_label = Some(s.name.clone());
+                    }
+                }
+            }
+        }
+
+        let screen = super::history::HistoryScreen::new(manager, scope_paths, scope_label);
+        ScreenAction::Push(Screen::History(screen))
+    }
+
+    fn action_cleanup(&self, manager: &Manager) -> ScreenAction {
+        let screen = super::cleanup::CleanupScreen::new(manager);
+        ScreenAction::Push(Screen::Cleanup(screen))
+    }
+
+    fn action_settings(&self, manager: &Manager) -> ScreenAction {
+        let screen = super::settings::SettingsScreen::new(manager);
+        ScreenAction::Push(Screen::Settings(screen))
+    }
+
+    fn action_help(&self) -> ScreenAction {
+        ScreenAction::Push(Screen::Help(super::help::HelpScreen))
+    }
+
+    // ------------------------------------------------------------------
+    // Child result handlers
+    // ------------------------------------------------------------------
+
+    fn handle_new_picked(&mut self, key: Option<String>, manager: &Manager) -> ScreenAction {
+        let key = match key {
+            Some(k) => k,
+            None => return ScreenAction::None,
+        };
+        let session = self.current_session().cloned();
+        match key.as_str() {
+            "new-session" => {
+                let screen = super::new_session::NewSessionScreen::new(manager);
+                ScreenAction::Push(Screen::NewSession(screen))
+            }
+            "new-tab" => {
+                if let Some(s) = session {
+                    if s.managed {
+                        if let Some(id) = s.id {
+                            let screen = super::new_tab::NewTabScreen::new(manager, id, s.name.clone());
+                            return ScreenAction::Push(Screen::NewTab(screen));
+                        }
+                    }
+                }
+                ScreenAction::None
+            }
+            _ => ScreenAction::None,
+        }
+    }
+
+    fn handle_action_picked(&mut self, key: Option<String>, manager: &Manager) -> ScreenAction {
+        let key = match key {
+            Some(k) => k,
+            None => return ScreenAction::None,
+        };
+        let row_key = self.current_row_key();
+        let session = self.current_session().cloned();
+
+        if key == "rename-tab" {
+            if let Some(rk) = &row_key {
+                if rk.starts_with("win:") {
+                    let parts: Vec<&str> = rk.splitn(3, ':').collect();
+                    if parts.len() == 3 {
+                        let session_name = parts[1].to_string();
+                        let window_index: i64 = parts[2].parse().unwrap_or(0);
+                        let windows = tmux::list_windows(&session_name);
+                        if let Some(win) = windows.iter().find(|w| w.index == window_index) {
+                            let screen = super::rename::RenameWindowScreen::new(
+                                session_name,
+                                window_index,
+                                win.name.clone(),
+                            );
+                            return ScreenAction::Push(Screen::RenameWindow(screen));
+                        }
+                    }
+                }
+            }
+            return ScreenAction::None;
+        }
+
+        let session = match session {
+            Some(s) => s,
+            None => return ScreenAction::None,
+        };
+
+        match key.as_str() {
+            "rename" if session.managed => {
+                if let Some(id) = session.id {
+                    let screen = super::rename::RenameSessionScreen::new(
+                        manager,
+                        id,
+                        session.name.clone(),
+                    );
+                    ScreenAction::Push(Screen::RenameSession(screen))
+                } else {
+                    ScreenAction::None
+                }
+            }
+            "branch" if session.managed => {
+                if let Some(id) = session.id {
+                    let screen = super::edit_branch::EditBranchScreen::new(
+                        manager,
+                        id,
+                        session.name.clone(),
+                    );
+                    ScreenAction::Push(Screen::EditBranch(screen))
+                } else {
+                    ScreenAction::None
+                }
+            }
+            "claude" if session.live => {
+                let _ = tmux::new_window(&session.name, "claude", None);
+                let target = format!("{}:claude", session.name);
+                tmux::send_keys(&target, &["claude", "Enter"]);
+                if session.managed {
+                    if let Some(id) = session.id {
+                        manager.touch_session(id);
+                    }
+                }
+                crate::switch::write_switch(&SwitchAction::Session {
+                    target: session.name.clone(),
+                });
+                ScreenAction::Quit
+            }
+            "adopt" if !session.managed => {
+                let screen = super::adopt_session::AdoptSessionScreen::new(
+                    manager,
+                    session.name.clone(),
+                );
+                ScreenAction::Push(Screen::AdoptSession(screen))
+            }
+            _ => ScreenAction::None,
+        }
+    }
+
     fn render_footer<'a>(&self) -> Paragraph<'a> {
         let bindings = vec![
             ("q", "Quit"),
@@ -731,8 +1051,52 @@ impl ScreenBehavior for SessionListScreen {
                 self.handle_tab(manager);
                 ScreenAction::None
             }
+            KeyCode::Char('n') => self.action_new_picker(manager),
+            KeyCode::Char('r') => self.action_review(manager),
+            KeyCode::Char('d') => self.action_delete(manager),
+            KeyCode::Char('.') => self.action_action_menu(manager),
+            KeyCode::Char('h') => self.action_history(manager),
+            KeyCode::Char('c') => self.action_cleanup(manager),
+            KeyCode::Char('S') => self.action_settings(manager),
+            KeyCode::Char('?') => self.action_help(),
             _ => ScreenAction::None,
         }
+    }
+
+    fn on_child_result(&mut self, result: ActionResult, manager: &mut Manager) -> ScreenAction {
+        let pending = std::mem::replace(&mut self.pending_action, PendingAction::None);
+        match pending {
+            PendingAction::NewPicker => {
+                if let ActionResult::MenuPick(key) = result {
+                    return self.handle_new_picked(key, manager);
+                }
+            }
+            PendingAction::ActionMenu => {
+                if let ActionResult::MenuPick(key) = result {
+                    return self.handle_action_picked(key, manager);
+                }
+            }
+            PendingAction::ConfirmDeleteTab { session_name, window_index } => {
+                if let ActionResult::Confirmed(true) = result {
+                    let _ = tmux::kill_window(&session_name, window_index);
+                    self.refresh(manager);
+                }
+            }
+            PendingAction::ConfirmDeleteSession { session_id } => {
+                if let ActionResult::Confirmed(true) = result {
+                    let _ = manager.delete_session(session_id, false);
+                    self.refresh(manager);
+                }
+            }
+            PendingAction::ConfirmKillSession { session_name } => {
+                if let ActionResult::Confirmed(true) = result {
+                    let _ = tmux::kill_session(&session_name);
+                    self.refresh(manager);
+                }
+            }
+            PendingAction::None => {}
+        }
+        ScreenAction::None
     }
 
     fn on_resume(&mut self, manager: &mut Manager) {
