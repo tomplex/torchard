@@ -53,13 +53,14 @@ def classify_pane(pane_text: str) -> str:
 
     tail = "\n".join(lines[-6:])
 
-    # Actively generating output
-    if "Generating" in tail or "Streaming" in tail:
-        return "thinking"
-
-    # Running a tool
+    # Running a tool — check before thinking since tool output may contain spinner-like text
     if re.search(r"Running", tail) and re.search(r"⏺|⎿", tail):
         return "working"
+
+    # Actively thinking — claude shows "✶ Boogieing…", "· Beboppin'…", "✢ Generating…", etc.
+    # Single non-ascii char followed by a capitalized word and ellipsis
+    if re.search(r"^\S\s+[A-Z]\w+…", tail, re.MULTILINE):
+        return "thinking"
 
     # Waiting for permission / confirmation
     if "Enter to confirm" in tail or "to approve" in tail or re.search(r"[Yy]es.*[Nn]o", tail):
