@@ -8,7 +8,7 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Static
 
 from torchard.core import git, tmux
-from torchard.core.db import get_sessions, get_worktrees
+from torchard.core.db import get_worktrees
 from torchard.core.manager import Manager
 from torchard.core.models import Session, Worktree
 from torchard.tui.utils import truncate_start
@@ -48,7 +48,7 @@ class CleanupScreen(Screen):
 
     def on_mount(self) -> None:
         # Build session map
-        sessions: list[Session] = get_sessions(self._manager._conn)
+        sessions: list[Session] = self._manager.get_sessions()
         session_by_id: dict[int, Session] = {s.id: s for s in sessions if s.id is not None}
 
         # Load worktrees

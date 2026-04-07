@@ -13,7 +13,7 @@ from textual.containers import Vertical
 
 from torchard.core import tmux
 from torchard.core.claude_session import get_session_id, get_first_user_message, summarize_message
-from torchard.core.db import get_repos, get_worktrees_for_session, touch_session
+from torchard.core.models import SessionInfo
 from torchard.core.fuzzy import fuzzy_match
 from torchard.core.manager import Manager
 from torchard.tui.utils import truncate_end
@@ -130,7 +130,7 @@ class SessionListScreen(Screen):
     def __init__(self, manager: Manager) -> None:
         super().__init__()
         self._manager = manager
-        self._sessions: list[dict] = []
+        self._sessions: list[SessionInfo] = []
         self._repos: dict = {}
         self._expanded: set[str] = set()  # session row keys that are expanded
         self._filter: str = ""
@@ -184,34 +184,34 @@ class SessionListScreen(Screen):
     def on_screen_resume(self) -> None:
         self._refresh_table()
 
-    def _session_sort_key(self, s: dict, grouped: bool) -> tuple:
+    def _session_sort_key(self, s: SessionInfo, grouped: bool) -> tuple:
         """Composite sort key for sessions.
 
         Order: "main" pinned first, then sessions with recent activity (newest first),
         then sessions without activity (alphabetical). When *grouped*, adds repo name
         as a secondary key so sessions cluster by repo.
         """
-        is_main = 0 if s["name"] == "main" else 1
-        has_ts = 0 if s.get("last_selected_at") else 1
+        is_main = 0 if s.name == "main" else 1
+        has_ts = 0 if s.last_selected_at else 1
         # Negate timestamp so newest sorts first (lexicographic descending).
-        ts = s.get("last_selected_at") or ""
+        ts = s.last_selected_at or ""
         neg_ts = "".join(chr(0x10FFFF - ord(c)) for c in ts) if ts else "~"
         if grouped:
-            repo = self._repos.get(s["repo_id"]) if s.get("repo_id") else None
+            repo = self._repos.get(s.repo_id) if s.repo_id else None
             repo_name = (repo.name if repo else "zzz").lower()
             return (is_main, repo_name, has_ts, neg_ts)
         return (is_main, has_ts, neg_ts)
 
-    def _sorted_sessions(self) -> list[dict]:
+    def _sorted_sessions(self) -> list[SessionInfo]:
         """Return sessions sorted and filtered for display."""
         sessions = self._manager.list_sessions()
 
         if self._filter:
             # Fuzzy filter: rank by match quality
-            scored: list[tuple[dict, int]] = []
+            scored: list[tuple[SessionInfo, int]] = []
             for session in sessions:
-                repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
-                candidates = [session["name"], repo.name if repo else "", session["base_branch"] or ""]
+                repo = self._repos.get(session.repo_id) if session.repo_id else None
+                candidates = [session.name, repo.name if repo else "", session.base_branch or ""]
                 best = None
                 for c in candidates:
                     s = fuzzy_match(self._filter, c)
@@ -230,30 +230,30 @@ class SessionListScreen(Screen):
         """Populate the DataTable with rows for each session (and expanded child windows)."""
         last_repo_name = None
         for session in self._sessions:
-            repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
+            repo = self._repos.get(session.repo_id) if session.repo_id else None
             repo_name = repo.name if repo else ""
-            branch = session["base_branch"] or "-"
+            branch = session.base_branch or "-"
             base = repo.default_branch if repo else "-"
-            windows = str(session["windows"]) if session["windows"] is not None else "-"
+            windows = str(session.windows) if session.windows is not None else "-"
             color = _repo_color(repo_name) if repo_name else "#666666"
 
             # Status indicator
-            if session["attached"]:
+            if session.attached:
                 dot = "[green]●[/green]"
-            elif not session["managed"]:
+            elif not session.managed:
                 dot = "[dim]◇[/dim]"
-            elif session["live"]:
+            elif session.live:
                 dot = "[blue]○[/blue]"
             else:
                 dot = " "
 
-            row_key = str(session["id"]) if session["id"] is not None else f"unmanaged:{session['name']}"
+            row_key = str(session.id) if session.id is not None else f"unmanaged:{session.name}"
             expanded = row_key in self._expanded
-            can_expand = session["live"]
+            can_expand = session.live
             expand = "▾" if expanded else "▸" if can_expand else " "
 
-            name_display = session["name"]
-            if session["attached"]:
+            name_display = session.name
+            if session.attached:
                 name_display = f"[green]{name_display}[/green]"
             win_display = f" [dim]({windows})[/dim]" if windows != "-" else ""
 
@@ -278,11 +278,11 @@ class SessionListScreen(Screen):
                 key=row_key,
             )
 
-            if expanded and session["live"]:
-                tmux_windows = tmux.list_windows(session["name"])
+            if expanded and session.live:
+                tmux_windows = tmux.list_windows(session.name)
                 wt_by_path: dict[str, str] = {}
-                if session["managed"] and session["id"] is not None:
-                    for wt in get_worktrees_for_session(self._manager._conn, session["id"]):
+                if session.managed and session.id is not None:
+                    for wt in self._manager.get_worktrees_for_session(session.id):
                         wt_by_path[wt.path] = wt.branch
                 for i, win in enumerate(tmux_windows):
                     is_last = i == len(tmux_windows) - 1
@@ -291,7 +291,7 @@ class SessionListScreen(Screen):
                     cmd = win.get("command", "")
                     is_claude = bool(cmd and re.match(r"^\d+\.\d+\.\d+", cmd))
                     if is_claude and re.match(r"^\d+\.\d+\.\d+", win["name"]):
-                        _try_rename_claude_window(session["name"], win)
+                        _try_rename_claude_window(session.name, win)
                     if is_claude:
                         cmd_display = "[#E87B35]✦ claude[/#E87B35]"
                     elif cmd and cmd != "zsh":
@@ -303,11 +303,11 @@ class SessionListScreen(Screen):
                         f"      [dim]{prefix}[/dim] [dim]{win['name']}[/dim]",
                         cmd_display,
                         col_detail,
-                        key=f"win:{session['name']}:{win['index']}",
+                        key=f"win:{session.name}:{win['index']}",
                     )
 
     def _refresh_table(self, restore_key: str | None = None) -> None:
-        self._repos = {r.id: r for r in get_repos(self._manager._conn)}
+        self._repos = {r.id: r for r in self._manager.get_repos()}
         self._sessions = self._sorted_sessions()
 
         table = self.query_one(DataTable)
@@ -325,9 +325,9 @@ class SessionListScreen(Screen):
 
     def _touch_by_name(self, session_name: str) -> None:
         """Update last_selected_at for a session looked up by name."""
-        session = next((s for s in self._sessions if s["name"] == session_name and s["managed"] and s["id"]), None)
+        session = next((s for s in self._sessions if s.name == session_name and s.managed and s.id), None)
         if session:
-            touch_session(self._manager._conn, session["id"])
+            self._manager.touch_session(session.id)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         row_key = event.row_key.value
@@ -377,7 +377,7 @@ class SessionListScreen(Screen):
         if row_key is None or self._is_child_row(row_key):
             return
         session = self._session_for_row_key(row_key)
-        if session is None or not session["live"]:
+        if session is None or not session.live:
             return
         if row_key in self._expanded:
             self._expanded.discard(row_key)
@@ -391,22 +391,22 @@ class SessionListScreen(Screen):
         session = self._session_for_row_key(row_key)
         if session is None:
             return
-        if session["managed"] and session["id"] is not None:
-            touch_session(self._manager._conn, session["id"])
-        write_switch({"type": "session", "target": session["name"]})
+        if session.managed and session.id is not None:
+            self._manager.touch_session(session.id)
+        write_switch({"type": "session", "target": session.name})
         self.app.exit()
 
-    def _session_for_row_key(self, row_key: str) -> dict | None:
+    def _session_for_row_key(self, row_key: str) -> SessionInfo | None:
         if row_key.startswith("unmanaged:"):
             name = row_key[len("unmanaged:"):]
-            return next((s for s in self._sessions if s["name"] == name), None)
+            return next((s for s in self._sessions if s.name == name), None)
         session_id = int(row_key)
-        return next((s for s in self._sessions if s["id"] == session_id), None)
+        return next((s for s in self._sessions if s.id == session_id), None)
 
     def action_quit(self) -> None:
         self.app.exit()
 
-    def _current_session(self) -> dict | None:
+    def _current_session(self) -> SessionInfo | None:
         """Get the session for the current row, or None if on a child row."""
         row_key = self._current_row_key()
         if row_key is None or self._is_child_row(row_key):
@@ -422,9 +422,9 @@ class SessionListScreen(Screen):
         items: list[tuple[str, str, str]] = [
             ("new-session", "New session", ""),
         ]
-        if session and session["managed"]:
-            items.append(("new-tab", f"New tab in {session['name']}", ""))
-        repo = self._repos.get(session["repo_id"]) if session and session["repo_id"] else None
+        if session and session.managed:
+            items.append(("new-tab", f"New tab in {session.name}", ""))
+        repo = self._repos.get(session.repo_id) if session and session.repo_id else None
         if repo:
             items.append(("review", "Review PR/branch", repo.name))
         self.app.push_screen(ActionMenu("New…", items), self._on_new_picked)
@@ -435,10 +435,10 @@ class SessionListScreen(Screen):
         session = self._current_session()
         if key == "new-session":
             self.app.push_screen(NewSessionScreen(self._manager))
-        elif key == "new-tab" and session and session["managed"]:
-            self.app.push_screen(NewTabScreen(self._manager, session["id"], session["name"]))
-        elif key == "review" and session and session["repo_id"]:
-            repo = self._repos.get(session["repo_id"])
+        elif key == "new-tab" and session and session.managed:
+            self.app.push_screen(NewTabScreen(self._manager, session.id, session.name))
+        elif key == "review" and session and session.repo_id:
+            repo = self._repos.get(session.repo_id)
             if repo:
                 self.app.push_screen(ReviewScreen(self._manager, repo.path, repo.name))
 
@@ -474,16 +474,16 @@ class SessionListScreen(Screen):
         session = self._session_for_row_key(row_key)
         if session is None:
             return
-        if session["managed"]:
-            name = session["name"]
+        if session.managed:
+            name = session.name
             msg = "Remove from torchard."
-            if session["live"]:
+            if session.live:
                 msg += " The tmux session will also be killed."
 
             def on_confirm(confirmed: bool) -> None:
                 if not confirmed:
                     return
-                self._manager.delete_session(session["id"], cleanup_worktrees=False)
+                self._manager.delete_session(session.id, cleanup_worktrees=False)
                 self._refresh_table()
 
             self.app.push_screen(
@@ -491,7 +491,7 @@ class SessionListScreen(Screen):
                 on_confirm,
             )
         else:
-            name = session["name"]
+            name = session.name
 
             def on_confirm_kill(confirmed: bool) -> None:
                 if not confirmed:
@@ -534,16 +534,16 @@ class SessionListScreen(Screen):
             return
 
         items = []
-        if session["managed"]:
-            items.append(("rename", "Rename", session["name"]))
-            items.append(("branch", "Change branch", session["base_branch"] or ""))
-            if session["live"]:
+        if session.managed:
+            items.append(("rename", "Rename", session.name))
+            items.append(("branch", "Change branch", session.base_branch or ""))
+            if session.live:
                 items.append(("claude", "Launch claude", ""))
-        elif session["live"]:
+        elif session.live:
             items.append(("adopt", "Adopt session", "bring under torchard management"))
         items.append(("cleanup", "Cleanup worktrees", ""))
 
-        self.app.push_screen(ActionMenu(f"Actions — {session['name']}", items), self._on_action_picked)
+        self.app.push_screen(ActionMenu(f"Actions — {session.name}", items), self._on_action_picked)
 
     def _on_action_picked(self, key: str | None) -> None:
         if key is None:
@@ -563,19 +563,19 @@ class SessionListScreen(Screen):
 
         if session is None:
             return
-        if key == "rename" and session["managed"]:
-            self.app.push_screen(RenameSessionScreen(self._manager, session["id"], session["name"]))
-        elif key == "branch" and session["managed"]:
-            self.app.push_screen(EditBranchScreen(self._manager, session["id"], session["name"]))
-        elif key == "claude" and session["live"]:
-            tmux.new_window(session["name"], "claude")
-            tmux.send_keys(f"{session['name']}:claude", "claude", "Enter")
-            if session["managed"] and session["id"] is not None:
-                touch_session(self._manager._conn, session["id"])
-            write_switch({"type": "session", "target": session["name"]})
+        if key == "rename" and session.managed:
+            self.app.push_screen(RenameSessionScreen(self._manager, session.id, session.name))
+        elif key == "branch" and session.managed:
+            self.app.push_screen(EditBranchScreen(self._manager, session.id, session.name))
+        elif key == "claude" and session.live:
+            tmux.new_window(session.name, "claude")
+            tmux.send_keys(f"{session.name}:claude", "claude", "Enter")
+            if session.managed and session.id is not None:
+                self._manager.touch_session(session.id)
+            write_switch({"type": "session", "target": session.name})
             self.app.exit()
-        elif key == "adopt" and not session["managed"]:
-            self.app.push_screen(AdoptSessionScreen(self._manager, session["name"]))
+        elif key == "adopt" and not session.managed:
+            self.app.push_screen(AdoptSessionScreen(self._manager, session.name))
         elif key == "cleanup":
             self.app.push_screen(CleanupScreen(self._manager))
 
@@ -583,21 +583,20 @@ class SessionListScreen(Screen):
         session = self._current_session()
         scope_paths = None
         scope_label = None
-        if session and session["managed"]:
-            repo = self._repos.get(session["repo_id"])
+        if session and session.managed:
+            repo = self._repos.get(session.repo_id)
             if repo:
                 # Scope to repo path + all its worktree paths
-                from torchard.core.db import get_worktrees_for_session
                 paths = [repo.path]
-                if session["id"] is not None:
-                    for wt in get_worktrees_for_session(self._manager._conn, session["id"]):
+                if session.id is not None:
+                    for wt in self._manager.get_worktrees_for_session(session.id):
                         paths.append(wt.path)
                 # Also include worktrees root for this repo
                 from pathlib import Path
                 wt_root = str(self._manager.worktrees_dir / repo.name)
                 paths.append(wt_root)
                 scope_paths = paths
-                scope_label = session["name"]
+                scope_label = session.name
         self.app.push_screen(HistoryScreen(self._manager, scope_paths, scope_label))
 
     def action_settings(self) -> None:

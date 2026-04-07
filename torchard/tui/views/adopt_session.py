@@ -11,7 +11,6 @@ from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, ListItem, ListView, Static
 
 from torchard.core import tmux
-from torchard.core.db import get_repos
 from torchard.core.git import GitError, list_branches
 from torchard.core.manager import Manager
 from torchard.core.models import Repo
@@ -108,7 +107,7 @@ class AdoptSessionScreen(Screen):
         fi = self.query_one("#adopt-filter", Input)
         fi.placeholder = "Filter repos…"
         fi.value = ""
-        self._repos = get_repos(self._manager._conn)
+        self._repos = self._manager.get_repos()
         self._populate_repo_list(self._repos)
         fi.focus()
 

@@ -9,7 +9,6 @@ from textual.screen import Screen
 from textual.widgets import Footer, Input, Static
 
 from torchard.core import tmux
-from torchard.core.db import get_session_by_name
 from torchard.core.manager import Manager
 
 
@@ -55,7 +54,7 @@ class RenameSessionScreen(Screen):
         if name == self._current_name:
             self.app.pop_screen()
             return
-        existing = get_session_by_name(self._manager._conn, name)
+        existing = self._manager.get_session_by_name(name)
         if existing is not None:
             error.update(f"[red]Session '{name}' already exists.[/red]")
             return

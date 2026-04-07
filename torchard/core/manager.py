@@ -19,7 +19,7 @@ from torchard.core.db import (
     get_worktrees,
     get_worktrees_for_session,
 )
-from torchard.core.models import Repo, Session, Worktree
+from torchard.core.models import Repo, Session, SessionInfo, Worktree
 
 
 def _now() -> str:
@@ -452,48 +452,68 @@ class Manager:
         self._scan_worktrees(home_dev, worktrees_root, known_repos, known_worktree_paths)
         self._scan_tmux_sessions(known_repos)
 
-    def list_sessions(self) -> list[dict]:
+    # ------------------------------------------------------------------
+    # Public convenience wrappers (so views don't need _conn)
+    # ------------------------------------------------------------------
+
+    def get_repos(self) -> list[Repo]:
+        return get_repos(self._conn)
+
+    def get_sessions(self) -> list[Session]:
+        return get_sessions(self._conn)
+
+    def get_worktrees_for_session(self, session_id: int) -> list[Worktree]:
+        return get_worktrees_for_session(self._conn, session_id)
+
+    def touch_session(self, session_id: int) -> None:
+        from torchard.core.db import touch_session
+        touch_session(self._conn, session_id)
+
+    def get_session_by_name(self, name: str) -> Session | None:
+        from torchard.core.db import get_session_by_name
+        return get_session_by_name(self._conn, name)
+
+    # ------------------------------------------------------------------
+    # list_sessions
+    # ------------------------------------------------------------------
+
+    def list_sessions(self) -> list[SessionInfo]:
         """Return DB sessions enriched with live tmux state, plus unmanaged live sessions."""
         db_sessions = get_sessions(self._conn)
         live_by_name: dict[str, dict] = {s["name"]: s for s in tmux.list_sessions()}
         db_names: set[str] = set()
 
-        result = []
+        result: list[SessionInfo] = []
         for session in db_sessions:
             db_names.add(session.name)
-            entry: dict = {
-                "id": session.id,
-                "name": session.name,
-                "repo_id": session.repo_id,
-                "base_branch": session.base_branch,
-                "created_at": session.created_at,
-                "last_selected_at": session.last_selected_at,
-                "windows": None,
-                "attached": False,
-                "live": False,
-                "managed": True,
-            }
             live = live_by_name.get(session.name)
-            if live:
-                entry["windows"] = live["windows"]
-                entry["attached"] = live["attached"]
-                entry["live"] = True
-            result.append(entry)
+            result.append(SessionInfo(
+                id=session.id,
+                name=session.name,
+                repo_id=session.repo_id,
+                base_branch=session.base_branch,
+                created_at=session.created_at,
+                last_selected_at=session.last_selected_at,
+                windows=live["windows"] if live else None,
+                attached=live["attached"] if live else False,
+                live=bool(live),
+                managed=True,
+            ))
 
         # Include live tmux sessions not tracked in the DB
         for name, live in live_by_name.items():
             if name not in db_names:
-                result.append({
-                    "id": None,
-                    "name": name,
-                    "repo_id": None,
-                    "base_branch": None,
-                    "created_at": None,
-                    "last_selected_at": None,
-                    "windows": live["windows"],
-                    "attached": live["attached"],
-                    "live": True,
-                    "managed": False,
-                })
+                result.append(SessionInfo(
+                    id=None,
+                    name=name,
+                    repo_id=None,
+                    base_branch=None,
+                    created_at=None,
+                    last_selected_at=None,
+                    windows=live["windows"],
+                    attached=live["attached"],
+                    live=True,
+                    managed=False,
+                ))
 
         return result

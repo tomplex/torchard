@@ -11,7 +11,6 @@ from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, ListItem, ListView, Static
 
 from torchard.core import tmux
-from torchard.core.db import get_session_by_name
 from torchard.core.git import GitError, detect_default_branch, list_branches
 from torchard.core.manager import Manager, detect_subsystems
 from torchard.core.models import Repo
@@ -333,11 +332,11 @@ class NewSessionScreen(Screen):
             base = self._selected_branch
         name = tmux.sanitize_session_name(base)
         # Deduplicate if a session with this name already exists
-        if get_session_by_name(self._manager._conn, name) is None:
+        if self._manager.get_session_by_name(name) is None:
             return name
         for i in range(2, 100):
             candidate = f"{name}-{i}"
-            if get_session_by_name(self._manager._conn, candidate) is None:
+            if self._manager.get_session_by_name(candidate) is None:
                 return candidate
         return name
 
@@ -368,7 +367,7 @@ class NewSessionScreen(Screen):
         if not name:
             self._set_error("Session name cannot be empty.")
             return
-        existing = get_session_by_name(self._manager._conn, name)
+        existing = self._manager.get_session_by_name(name)
         if existing is not None:
             self._set_error(f"Session '{name}' already exists. Choose a different name.")
             return

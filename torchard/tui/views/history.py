@@ -10,7 +10,6 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Input, Static
 
 from torchard.core import tmux
-from torchard.core.db import get_repos, get_sessions
 from torchard.core.conversation_index import Conversation, filter_by_paths, parse_index
 from torchard.core.manager import Manager
 from torchard.tui.switch import write_switch
@@ -166,8 +165,8 @@ class HistoryScreen(Screen):
         entry = self._displayed[idx]
 
         # Find if this project dir belongs to an existing managed session
-        sessions = get_sessions(self._manager._conn)
-        repos = {r.id: r for r in get_repos(self._manager._conn)}
+        sessions = self._manager.get_sessions()
+        repos = {r.id: r for r in self._manager.get_repos()}
         target_session = None
 
         for s in sessions:
@@ -176,8 +175,7 @@ class HistoryScreen(Screen):
                 target_session = s.name
                 break
             # Check worktree paths too
-            from torchard.core.db import get_worktrees_for_session
-            for wt in get_worktrees_for_session(self._manager._conn, s.id):
+            for wt in self._manager.get_worktrees_for_session(s.id):
                 if entry.project.startswith(wt.path):
                     target_session = s.name
                     break

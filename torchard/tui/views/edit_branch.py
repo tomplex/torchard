@@ -8,7 +8,6 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, ListItem, ListView, Static
 
-from torchard.core.db import get_repos
 from torchard.core.git import GitError, list_branches
 from torchard.core.manager import Manager
 from torchard.tui.utils import safe_id
@@ -84,14 +83,13 @@ class EditBranchScreen(Screen):
         )
 
         # Find the repo for this session
-        from torchard.core.db import get_sessions
-        sessions = get_sessions(self._manager._conn)
+        sessions = self._manager.get_sessions()
         session = next((s for s in sessions if s.id == self._session_id), None)
         if session is None:
             self.query_one("#editbranch-error", Static).update("[red]Session not found[/red]")
             return
 
-        repos = {r.id: r for r in get_repos(self._manager._conn)}
+        repos = {r.id: r for r in self._manager.get_repos()}
         repo = repos.get(session.repo_id)
         if repo is None:
             self.query_one("#editbranch-error", Static).update("[red]Repo not found[/red]")

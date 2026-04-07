@@ -322,10 +322,12 @@ class TestListSessions:
             result = mgr.list_sessions()
 
         assert len(result) == 1
-        assert result[0]["name"] == SESSION_NAME
-        assert result[0]["windows"] == 3
-        assert result[0]["attached"] is True
-        assert result[0]["live"] is True
+        s = result[0]
+        assert s.name == SESSION_NAME
+        assert s.windows == 3
+        assert s.attached is True
+        assert s.live is True
+        assert s.managed is True
 
     def test_session_not_in_tmux(self, mgr):
         with _patch_git_detect(), _patch_tmux_new_session():
@@ -335,9 +337,10 @@ class TestListSessions:
             result = mgr.list_sessions()
 
         assert len(result) == 1
-        assert result[0]["live"] is False
-        assert result[0]["windows"] is None
-        assert result[0]["attached"] is False
+        s = result[0]
+        assert s.live is False
+        assert s.windows is None
+        assert s.attached is False
 
     def test_empty_when_no_db_sessions(self, mgr):
         with patch("torchard.core.manager.tmux.list_sessions", return_value=[]):
@@ -356,9 +359,92 @@ class TestListSessions:
             result = mgr.list_sessions()
 
         assert len(result) == 2
-        by_name = {r["name"]: r for r in result}
-        assert by_name["session-a"]["live"] is True
-        assert by_name["session-b"]["live"] is False
+        by_name = {s.name: s for s in result}
+        assert by_name["session-a"].live is True
+        assert by_name["session-b"].live is False
+
+    def test_unmanaged_session_included(self, mgr):
+        """Live tmux sessions not in the DB appear as unmanaged."""
+        live = [{"name": "rogue-session", "windows": 1, "attached": False}]
+        with patch("torchard.core.manager.tmux.list_sessions", return_value=live):
+            result = mgr.list_sessions()
+
+        assert len(result) == 1
+        s = result[0]
+        assert s.name == "rogue-session"
+        assert s.id is None
+        assert s.managed is False
+        assert s.live is True
+        assert s.repo_id is None
+
+    def test_session_info_has_all_fields(self, mgr):
+        """SessionInfo dataclass has every field the TUI expects."""
+        with _patch_git_detect(), _patch_tmux_new_session():
+            mgr.create_session(REPO_PATH, "main", SESSION_NAME)
+
+        live = [{"name": SESSION_NAME, "windows": 2, "attached": False}]
+        with patch("torchard.core.manager.tmux.list_sessions", return_value=live):
+            result = mgr.list_sessions()
+
+        s = result[0]
+        # Verify all expected attributes exist and have correct types
+        assert isinstance(s.id, int)
+        assert isinstance(s.name, str)
+        assert isinstance(s.repo_id, int)
+        assert isinstance(s.base_branch, str)
+        assert isinstance(s.created_at, str)
+        assert s.last_selected_at is None or isinstance(s.last_selected_at, str)
+        assert isinstance(s.windows, int)
+        assert isinstance(s.attached, bool)
+        assert isinstance(s.live, bool)
+        assert isinstance(s.managed, bool)
+
+
+# ---------------------------------------------------------------------------
+# Manager public API wrappers
+# ---------------------------------------------------------------------------
+
+class TestManagerPublicAPI:
+    def test_get_repos(self, mgr, conn):
+        with _patch_git_detect(), _patch_tmux_new_session():
+            mgr.create_session(REPO_PATH, "main", SESSION_NAME)
+        repos = mgr.get_repos()
+        assert len(repos) == 1
+        assert repos[0].path == REPO_PATH
+
+    def test_get_sessions(self, mgr, conn):
+        with _patch_git_detect(), _patch_tmux_new_session():
+            mgr.create_session(REPO_PATH, "main", SESSION_NAME)
+        sessions = mgr.get_sessions()
+        assert len(sessions) == 1
+        assert sessions[0].name == SESSION_NAME
+
+    def test_get_worktrees_for_session(self, mgr, conn):
+        with _patch_git_detect(), _patch_tmux_new_session():
+            session = mgr.create_session(REPO_PATH, "main", SESSION_NAME)
+        with _patch_git_create_worktree(), _patch_tmux_new_window():
+            mgr.add_tab(session.id, "feat-x")
+        wts = mgr.get_worktrees_for_session(session.id)
+        assert len(wts) == 1
+        assert wts[0].branch == "feat-x"
+
+    def test_touch_session(self, mgr, conn):
+        with _patch_git_detect(), _patch_tmux_new_session():
+            session = mgr.create_session(REPO_PATH, "main", SESSION_NAME)
+        # Initially no last_selected_at
+        sessions = mgr.get_sessions()
+        assert sessions[0].last_selected_at is None
+        mgr.touch_session(session.id)
+        sessions = mgr.get_sessions()
+        assert sessions[0].last_selected_at is not None
+
+    def test_get_session_by_name(self, mgr, conn):
+        with _patch_git_detect(), _patch_tmux_new_session():
+            mgr.create_session(REPO_PATH, "main", SESSION_NAME)
+        found = mgr.get_session_by_name(SESSION_NAME)
+        assert found is not None
+        assert found.name == SESSION_NAME
+        assert mgr.get_session_by_name("nonexistent") is None
 
 
 # ---------------------------------------------------------------------------
