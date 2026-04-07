@@ -112,14 +112,16 @@ pub fn classify_pane(pane_text: &str) -> &'static str {
     static PROMPTING_RE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"❯\s+1\.").unwrap());
     static WORKING_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"[^\x00-\x7f]\s+\S+…").unwrap());
+        LazyLock::new(|| Regex::new(r"[^\x00-\x7f]\s+.*…").unwrap());
 
     // Permission dialog: ❯ followed by numbered choice + "Esc to cancel"
     if PROMPTING_RE.is_match(&tail_text) && tail_text.contains("Esc to cancel") {
         return "prompting";
     }
 
-    // Active spinner: non-ASCII char followed by word ending in …
+    // Active spinner: non-ASCII char followed by text containing …
+    // Matches both short spinners ("✻ Envisioning…") and long ones
+    // ("✳ Transition to implementation planning… (3m 51s · ↓ 406 tokens)")
     if WORKING_RE.is_match(&tail_text) {
         return "working";
     }
@@ -178,5 +180,21 @@ mod tests {
     #[test]
     fn classify_idle_normal() {
         assert_eq!(classify_pane("❯ some command\noutput"), "idle");
+    }
+
+    #[test]
+    fn classify_working_long_spinner() {
+        // Multi-word spinner line with timing info (thinking/planning state)
+        let text = "✳ Transition to implementation planning… (3m 51s · ↓ 406 tokens)\n  ⎿  ✔ Explore project context\n     ◼ Transition to implementation planning";
+        assert_eq!(classify_pane(text), "working");
+    }
+
+    #[test]
+    fn classify_idle_past_tense_spinner() {
+        // Idle: spinner shows past tense with duration, no …
+        assert_eq!(classify_pane("✻ Brewed for 31s"), "idle");
+        assert_eq!(classify_pane("✻ Baked for 2m 36s"), "idle");
+        assert_eq!(classify_pane("✻ Cogitated for 43s"), "idle");
+        assert_eq!(classify_pane("✻ Cooked for 3m 17s"), "idle");
     }
 }

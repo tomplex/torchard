@@ -64,8 +64,8 @@ def classify_pane(pane_text: str) -> str:
     if re.search(r"❯\s+1\.", tail_text) and "Esc to cancel" in tail_text:
         return "prompting"
 
-    # Active spinner: a non-ASCII symbol followed by a word ending in … (ellipsis)
-    if re.search(r"[^\x00-\x7f]\s+\S+…", tail_text):
+    # Active spinner: a non-ASCII symbol followed by text containing … (ellipsis)
+    if re.search(r"[^\x00-\x7f]\s+.*…", tail_text):
         return "working"
 
     return "idle"
