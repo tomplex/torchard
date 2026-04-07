@@ -1331,6 +1331,8 @@ impl ScreenBehavior for SessionListScreen {
                 f.render_widget(hint, chunks[2]);
 
                 // Overlay input on the current row's Session column
+                // The session column has a prefix: "● ▸ " (status + expand = 4 chars)
+                // We overlay the entire session column to cover the old text including "(N)" count
                 let table_area = chunks[1];
                 let selected = self.table_state.selected().unwrap_or(0);
                 let scroll_offset = self.table_state.offset();
@@ -1338,22 +1340,47 @@ impl ScreenBehavior for SessionListScreen {
                 let row_y = table_area.y + 1 + visible_row as u16; // +1 for header
 
                 if row_y < table_area.y + table_area.height {
-                    let session_col_width = table_area.width * 40 / 100; // matches Percentage(40)
+                    let session_col_width = table_area.width * 40 / 100;
                     let input_area = Rect::new(table_area.x, row_y, session_col_width, 1);
 
-                    // Render input with cursor
+                    // Reconstruct the row prefix (status indicator + expand arrow)
+                    // to keep the visual context while editing
+                    let row_prefix = if let Some(idx) = self.table_state.selected() {
+                        if idx < self.rows.len() {
+                            // Extract the first 4 chars of the session column (status + arrow + spaces)
+                            let segs = &self.rows[idx].col_session;
+                            let mut prefix_spans: Vec<Span> = Vec::new();
+                            let mut chars_taken = 0;
+                            for seg in segs {
+                                if chars_taken >= 4 {
+                                    break;
+                                }
+                                let remaining = 4 - chars_taken;
+                                let seg_chars: String = seg.text.chars().take(remaining).collect();
+                                chars_taken += seg_chars.chars().count();
+                                prefix_spans.push(Span::styled(seg_chars, seg.style.bg(theme::CURSOR_BG)));
+                            }
+                            prefix_spans
+                        } else {
+                            vec![Span::styled("    ", Style::default().bg(theme::CURSOR_BG))]
+                        }
+                    } else {
+                        vec![Span::styled("    ", Style::default().bg(theme::CURSOR_BG))]
+                    };
+
+                    // Build the input display with cursor
                     let before: String = input.chars().take(*cursor_pos).collect();
                     let cursor_char = input.chars().nth(*cursor_pos).unwrap_or(' ');
                     let after: String = input.chars().skip(*cursor_pos + 1).collect();
 
-                    let spans = vec![
-                        Span::styled(&before, Style::default().fg(theme::TEXT).bg(theme::CURSOR_BG)),
-                        Span::styled(
-                            cursor_char.to_string(),
-                            Style::default().fg(theme::BG).bg(theme::ACCENT),
-                        ),
-                        Span::styled(&after, Style::default().fg(theme::TEXT).bg(theme::CURSOR_BG)),
-                    ];
+                    let mut spans = row_prefix;
+                    spans.push(Span::styled(&before, Style::default().fg(theme::TEXT).bg(theme::CURSOR_BG)));
+                    spans.push(Span::styled(
+                        cursor_char.to_string(),
+                        Style::default().fg(theme::BG).bg(theme::ACCENT),
+                    ));
+                    spans.push(Span::styled(&after, Style::default().fg(theme::TEXT).bg(theme::CURSOR_BG)));
+
                     let input_widget = Paragraph::new(Line::from(spans))
                         .style(Style::default().bg(theme::CURSOR_BG));
                     f.render_widget(input_widget, input_area);
