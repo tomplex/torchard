@@ -262,6 +262,7 @@ pub fn capture_pane(target: &str, lines: i64) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_pane_pid(target: &str) -> Option<String> {
     let output = run(&["display-message", "-t", target, "-p", "#{pane_pid}"]);
     if output.status.success() {

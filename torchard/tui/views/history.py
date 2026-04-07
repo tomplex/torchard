@@ -10,7 +10,7 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Input, Static
 
 from torchard.core import tmux
-from torchard.core.conversation_index import Conversation, filter_by_paths, parse_index
+from torchard.core.conversation_index import Conversation, filter_by_paths, parse_index, resolve_session_id
 from torchard.core.manager import Manager
 from torchard.tui.switch import write_switch
 from torchard.tui.utils import truncate_end
@@ -21,7 +21,6 @@ class HistoryScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "dismiss", "Back"),
-        Binding("enter", "resume", "Resume"),
         Binding("j,down", "cursor_down", "Down", show=False),
         Binding("k,up", "cursor_up", "Up", show=False),
         Binding("t", "toggle_scope", "Toggle scope"),
@@ -156,6 +155,9 @@ class HistoryScreen(Screen):
         self._scoped = not self._scoped
         self._rebuild()
 
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self.action_resume()
+
     def action_resume(self) -> None:
         table = self.query_one(DataTable)
         if table.row_count == 0:
@@ -182,7 +184,7 @@ class HistoryScreen(Screen):
             if target_session:
                 break
 
-        session_id = entry.session_id
+        session_id = resolve_session_id(entry.session_id, entry.project)
         resume_cmd = f"claude --resume {session_id}"
 
         if target_session:

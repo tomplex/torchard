@@ -31,8 +31,27 @@ _REPO_COLORS = [
 ]
 
 
-def _repo_color(repo_name: str) -> str:
-    return _REPO_COLORS[hash(repo_name) % len(_REPO_COLORS)]
+def _assign_repo_colors(repo_names: set[str]) -> dict[str, str]:
+    """Assign unique, stable colors to repo names. Only collides when colors are exhausted."""
+    import hashlib
+
+    assignment: dict[str, str] = {}
+    used: set[int] = set()
+    n = len(_REPO_COLORS)
+
+    for name in sorted(repo_names):
+        preferred = int(hashlib.md5(name.encode()).hexdigest(), 16) % n
+        # Walk forward from preferred slot until we find a free one
+        for i in range(n):
+            candidate = (preferred + i) % n
+            if candidate not in used:
+                assignment[name] = _REPO_COLORS[candidate]
+                used.add(candidate)
+                break
+        else:
+            assignment[name] = _REPO_COLORS[preferred]
+
+    return assignment
 
 
 class SessionListScreen(Screen):
@@ -47,9 +66,11 @@ class SessionListScreen(Screen):
         Binding("enter", "select", "Switch"),
         Binding("tab", "toggle_expand", "Expand"),
         Binding("n", "new_picker", "New"),
+        Binding("r", "review", "Review"),
         Binding("d", "delete", "Delete"),
         Binding("h", "history", "History"),
         Binding("full_stop", "action_menu", "Actions"),
+        Binding("c", "cleanup", "Cleanup"),
         Binding("S", "settings", "Settings"),
         Binding("question_mark", "help", "Help"),
     ]
@@ -146,6 +167,14 @@ class SessionListScreen(Screen):
 
     def _render_session_rows(self, table: DataTable, all_windows: dict[str, list[dict]]) -> None:
         """Populate the DataTable with rows for each session (and expanded child windows)."""
+        # Build stable color mapping for all repos in this render
+        all_repo_names = {
+            self._repos[s.repo_id].name
+            for s in self._sessions
+            if s.repo_id and s.repo_id in self._repos
+        }
+        repo_colors = _assign_repo_colors(all_repo_names)
+
         last_repo_name = None
         for session in self._sessions:
             repo = self._repos.get(session.repo_id) if session.repo_id else None
@@ -153,7 +182,7 @@ class SessionListScreen(Screen):
             branch = session.base_branch or "-"
             base = repo.default_branch if repo else "-"
             windows = str(session.windows) if session.windows is not None else "-"
-            color = _repo_color(repo_name) if repo_name else "#666666"
+            color = repo_colors.get(repo_name, "#666666")
 
             # Status indicator
             if session.attached:
@@ -351,9 +380,6 @@ class SessionListScreen(Screen):
         ]
         if session and session.managed:
             items.append(("new-tab", f"New tab in {session.name}", ""))
-        repo = self._repos.get(session.repo_id) if session and session.repo_id else None
-        if repo:
-            items.append(("review", "Review PR/branch", repo.name))
         self.app.push_screen(ActionMenu("New…", items), self._on_new_picked)
 
     def _on_new_picked(self, key: str | None) -> None:
@@ -366,11 +392,10 @@ class SessionListScreen(Screen):
         elif key == "new-tab" and session and session.managed:
             from torchard.tui.views.new_tab import NewTabScreen
             self.app.push_screen(NewTabScreen(self._manager, session.id, session.name))
-        elif key == "review" and session and session.repo_id:
-            from torchard.tui.views.review import ReviewScreen
-            repo = self._repos.get(session.repo_id)
-            if repo:
-                self.app.push_screen(ReviewScreen(self._manager, repo.path, repo.name))
+
+    def action_review(self) -> None:
+        from torchard.tui.views.review import ReviewScreen
+        self.app.push_screen(ReviewScreen(self._manager))
 
     # ------------------------------------------------------------------
     # Context-aware delete (d)
@@ -473,7 +498,6 @@ class SessionListScreen(Screen):
                 items.append(("claude", "Launch claude", ""))
         elif session.live:
             items.append(("adopt", "Adopt session", "bring under torchard management"))
-        items.append(("cleanup", "Cleanup worktrees", ""))
 
         self.app.push_screen(ActionMenu(f"Actions — {session.name}", items), self._on_action_picked)
 
@@ -512,9 +536,6 @@ class SessionListScreen(Screen):
         elif key == "adopt" and not session.managed:
             from torchard.tui.views.adopt_session import AdoptSessionScreen
             self.app.push_screen(AdoptSessionScreen(self._manager, session.name))
-        elif key == "cleanup":
-            from torchard.tui.views.cleanup import CleanupScreen
-            self.app.push_screen(CleanupScreen(self._manager))
 
     def action_history(self) -> None:
         session = self._current_session()
@@ -535,6 +556,10 @@ class SessionListScreen(Screen):
                 scope_label = session.name
         from torchard.tui.views.history import HistoryScreen
         self.app.push_screen(HistoryScreen(self._manager, scope_paths, scope_label))
+
+    def action_cleanup(self) -> None:
+        from torchard.tui.views.cleanup import CleanupScreen
+        self.app.push_screen(CleanupScreen(self._manager))
 
     def action_settings(self) -> None:
         from torchard.tui.views.settings import SettingsScreen

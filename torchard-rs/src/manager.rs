@@ -261,7 +261,7 @@ impl Manager {
         let _ = tmux::rename_session(&session.name, new_name);
 
         // Rename in DB
-        &self.conn
+        self.conn
             .execute(
                 "UPDATE sessions SET name = ?1 WHERE id = ?2",
                 params![new_name, session_id],
@@ -280,7 +280,7 @@ impl Manager {
             .get_session_by_id(session_id)
             .ok_or_else(|| format!("Session {} not found", session_id))?;
 
-        &self.conn
+        self.conn
             .execute(
                 "UPDATE sessions SET base_branch = ?1 WHERE id = ?2",
                 params![base_branch, session_id],
@@ -417,7 +417,7 @@ impl Manager {
             }
         } else {
             // Detach worktrees from this session to satisfy FK constraint
-            &self.conn
+            self.conn
                 .execute(
                     "UPDATE worktrees SET session_id = NULL WHERE session_id = ?1",
                     params![session_id],

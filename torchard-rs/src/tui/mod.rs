@@ -18,7 +18,7 @@ pub mod settings;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event};
 use ratatui::{prelude::*, widgets::*};
 
 use crate::manager::Manager;
@@ -39,6 +39,7 @@ pub enum ScreenAction {
     Quit,
 }
 
+#[allow(dead_code)]
 pub enum BackgroundResult {
     StaleWorktrees(Vec<Worktree>),
     CheckoutComplete(Result<(Session, String), String>),
@@ -122,6 +123,7 @@ pub struct App {
     screen_stack: Vec<Screen>,
     should_quit: bool,
     bg_rx: mpsc::Receiver<BackgroundResult>,
+    #[allow(dead_code)]
     pub bg_tx: mpsc::Sender<BackgroundResult>,
 }
 
@@ -137,6 +139,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     pub fn push(&mut self, screen: Screen) {
         self.screen_stack.push(screen);
     }

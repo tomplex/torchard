@@ -79,7 +79,7 @@ class Manager:
         return Path(get_config(self._conn, "worktrees_dir") or str(Path.home() / "dev" / "worktrees"))
 
     def _worktree_path(self, repo_name: str, branch: str) -> str:
-        return str(self.worktrees_dir / repo_name / branch)
+        return str(self.worktrees_dir / repo_name / branch.replace("/", "-"))
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -227,6 +227,7 @@ class Manager:
         """Create a worktree + session for a PR number or branch, ready for review.
 
         Returns (session, worktree_path) so the caller can launch claude in it.
+        If the worktree and session already exist, reuses them.
         """
         repo = self._get_or_create_repo(repo_path)
 
@@ -239,18 +240,21 @@ class Manager:
         # Fetch the branch so it's available locally
         git.fetch_branch(repo_path, branch)
 
-        # Create worktree
-        worktree_path = self._worktree_path(repo.name, branch)
-        base = f"origin/{branch}"
-        try:
-            git.create_worktree(repo_path, worktree_path, branch, base)
-        except git.GitError:
-            # Worktree or branch may already exist - try to just use the path
-            if not Path(worktree_path).exists():
-                raise
-
-        # Sanitize session name
+        # Check if we already have a session for this branch
         session_name = tmux.sanitize_session_name(branch)
+        worktree_path = self._worktree_path(repo.name, branch)
+        existing_session = self.get_session_by_name(session_name)
+
+        if existing_session and Path(worktree_path).exists():
+            return existing_session, worktree_path
+
+        # Create worktree if it doesn't already exist on disk
+        if not Path(worktree_path).exists():
+            base = f"origin/{branch}"
+            git.create_worktree(repo_path, worktree_path, branch, base)
+
+        if existing_session:
+            return existing_session, worktree_path
 
         # Create session
         session = add_session(

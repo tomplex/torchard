@@ -90,6 +90,23 @@ def parse_index(path: Path | None = None) -> list[Conversation]:
     return entries
 
 
+def resolve_session_id(short_id: str, project_path: str) -> str:
+    """Resolve a short 8-char session ID to its full UUID.
+
+    Scans the Claude projects directory for the matching .jsonl file.
+    Returns the full UUID if found, otherwise returns the short ID as-is.
+    """
+    # Claude stores conversations at ~/.claude/projects/<encoded-path>/<uuid>.jsonl
+    # where encoded-path replaces '/' with '-'
+    encoded = project_path.replace("/", "-")
+    projects_dir = Path.home() / ".claude" / "projects" / encoded
+    if projects_dir.is_dir():
+        for f in projects_dir.glob("*.jsonl"):
+            if f.stem.startswith(short_id):
+                return f.stem
+    return short_id
+
+
 def filter_by_paths(entries: list[Conversation], paths: list[str]) -> list[Conversation]:
     """Filter conversations whose project starts with any of the given paths."""
     return [e for e in entries if any(e.project.startswith(p) for p in paths)]

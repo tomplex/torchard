@@ -35,6 +35,7 @@ pub struct SessionInfo {
     pub name: String,
     pub repo_id: Option<i64>,
     pub base_branch: Option<String>,
+    #[allow(dead_code)]
     pub created_at: Option<String>,
     pub last_selected_at: Option<String>,
     pub windows: Option<i64>,

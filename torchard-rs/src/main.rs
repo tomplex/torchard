@@ -20,6 +20,7 @@ fn main() {
         .join(".local/share/torchard/torchard.db");
     let first_run = !db_path.exists();
     let conn = db::init_db(&db_path);
+    #[allow(unused_mut)]
     let mut mgr = manager::Manager::new(conn);
     if first_run {
         mgr.scan_existing();
