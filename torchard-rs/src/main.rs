@@ -14,8 +14,10 @@ mod tui;
 fn main() {
     switch::cleanup();
 
-    let data_dir = dirs::data_dir().expect("no data dir");
-    let db_path = data_dir.join("torchard").join("torchard.db");
+    // Match Python's _DEFAULT_DB_PATH: ~/.local/share/torchard/torchard.db
+    let db_path = dirs::home_dir()
+        .expect("no home dir")
+        .join(".local/share/torchard/torchard.db");
     let first_run = !db_path.exists();
     let conn = db::init_db(&db_path);
     let mut mgr = manager::Manager::new(conn);

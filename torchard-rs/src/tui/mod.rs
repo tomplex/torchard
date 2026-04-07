@@ -142,6 +142,12 @@ impl App {
     }
 
     pub fn run(&mut self, terminal: &mut ratatui::DefaultTerminal) {
+        // Enable mouse support
+        crossterm::execute!(
+            std::io::stdout(),
+            crossterm::event::EnableMouseCapture
+        ).ok();
+
         // Push initial screen
         let initial = session_list::SessionListScreen::new(&self.manager);
         self.screen_stack.push(Screen::SessionList(initial));
@@ -170,6 +176,12 @@ impl App {
                 }
             }
         }
+
+        // Disable mouse support
+        crossterm::execute!(
+            std::io::stdout(),
+            crossterm::event::DisableMouseCapture
+        ).ok();
     }
 
     fn render(&self, f: &mut Frame) {

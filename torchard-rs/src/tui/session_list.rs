@@ -1014,6 +1014,32 @@ impl ScreenBehavior for SessionListScreen {
     }
 
     fn handle_event(&mut self, event: &Event, manager: &mut Manager) -> ScreenAction {
+        // Handle mouse events
+        if let Event::Mouse(mouse) = event {
+            use crossterm::event::{MouseEventKind, MouseButton};
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.cursor_up();
+                    return ScreenAction::None;
+                }
+                MouseEventKind::ScrollDown => {
+                    self.cursor_down();
+                    return ScreenAction::None;
+                }
+                MouseEventKind::Down(MouseButton::Left) => {
+                    // Click to select row — offset by header row and filter bar
+                    let header_offset = if self.filter_active { 2 } else { 1 };
+                    let row = mouse.row as usize;
+                    if row >= header_offset && row - header_offset < self.rows.len() {
+                        self.cursor = row - header_offset;
+                        self.table_state.select(Some(self.cursor));
+                    }
+                    return ScreenAction::None;
+                }
+                _ => return ScreenAction::None,
+            }
+        }
+
         let Event::Key(KeyEvent { code, kind: KeyEventKind::Press, .. }) = event else {
             return ScreenAction::None;
         };
