@@ -1,0 +1,189 @@
+// torchard-rs/src/tui/mod.rs
+
+pub mod theme;
+pub mod session_list;
+pub mod action_menu;
+pub mod confirm;
+pub mod help;
+// Additional screen modules will be added in later tasks
+
+use std::sync::mpsc;
+use std::time::Duration;
+
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use ratatui::{prelude::*, widgets::*};
+
+use crate::manager::Manager;
+use crate::models::*;
+use crate::switch::{self, SwitchAction};
+
+pub enum ActionResult {
+    Confirmed(bool),
+    MenuPick(Option<String>),
+}
+
+pub enum ScreenAction {
+    None,
+    Push(Screen),
+    Pop,
+    PopWith(ActionResult),
+    Switch(SwitchAction),
+    Quit,
+}
+
+pub enum BackgroundResult {
+    StaleWorktrees(Vec<Worktree>),
+    CheckoutComplete(Result<(Session, String), String>),
+}
+
+pub trait ScreenBehavior {
+    fn render(&self, f: &mut Frame, area: Rect, manager: &Manager);
+    fn handle_event(&mut self, event: &Event, manager: &mut Manager) -> ScreenAction;
+    fn on_child_result(&mut self, _result: ActionResult, _manager: &mut Manager) -> ScreenAction {
+        ScreenAction::None
+    }
+    fn on_resume(&mut self, _manager: &mut Manager) {}
+    fn on_background_result(&mut self, _result: BackgroundResult, _manager: &mut Manager) -> ScreenAction {
+        ScreenAction::None
+    }
+    fn is_modal(&self) -> bool {
+        false
+    }
+}
+
+// All screen types — will grow as we add modules
+pub enum Screen {
+    SessionList(session_list::SessionListScreen),
+    ActionMenu(action_menu::ActionMenuScreen),
+    Confirm(confirm::ConfirmScreen),
+    Help(help::HelpScreen),
+    // Remaining screens added in later tasks
+}
+
+impl Screen {
+    fn behavior(&self) -> &dyn ScreenBehavior {
+        match self {
+            Screen::SessionList(s) => s,
+            Screen::ActionMenu(s) => s,
+            Screen::Confirm(s) => s,
+            Screen::Help(s) => s,
+        }
+    }
+
+    fn behavior_mut(&mut self) -> &mut dyn ScreenBehavior {
+        match self {
+            Screen::SessionList(s) => s,
+            Screen::ActionMenu(s) => s,
+            Screen::Confirm(s) => s,
+            Screen::Help(s) => s,
+        }
+    }
+}
+
+pub struct App {
+    pub manager: Manager,
+    screen_stack: Vec<Screen>,
+    should_quit: bool,
+    bg_rx: mpsc::Receiver<BackgroundResult>,
+    pub bg_tx: mpsc::Sender<BackgroundResult>,
+}
+
+impl App {
+    pub fn new(manager: Manager) -> Self {
+        let (bg_tx, bg_rx) = mpsc::channel();
+        Self {
+            manager,
+            screen_stack: Vec::new(),
+            should_quit: false,
+            bg_rx,
+            bg_tx,
+        }
+    }
+
+    pub fn push(&mut self, screen: Screen) {
+        self.screen_stack.push(screen);
+    }
+
+    pub fn run(&mut self, terminal: &mut ratatui::DefaultTerminal) {
+        // Push initial screen
+        let initial = session_list::SessionListScreen::new(&self.manager);
+        self.screen_stack.push(Screen::SessionList(initial));
+
+        while !self.should_quit {
+            // Draw
+            terminal
+                .draw(|f| self.render(f))
+                .expect("draw");
+
+            // Check for background results
+            while let Ok(result) = self.bg_rx.try_recv() {
+                if let Some(top) = self.screen_stack.last_mut() {
+                    let action = top.behavior_mut().on_background_result(result, &mut self.manager);
+                    self.process_action(action);
+                }
+            }
+
+            // Poll for input
+            if event::poll(Duration::from_millis(50)).unwrap_or(false) {
+                if let Ok(ev) = event::read() {
+                    if let Some(top) = self.screen_stack.last_mut() {
+                        let action = top.behavior_mut().handle_event(&ev, &mut self.manager);
+                        self.process_action(action);
+                    }
+                }
+            }
+        }
+    }
+
+    fn render(&self, f: &mut Frame) {
+        let area = f.area();
+        // Render background
+        f.render_widget(Block::default().style(theme::style_default()), area);
+
+        // Render all screens in stack
+        for (i, screen) in self.screen_stack.iter().enumerate() {
+            let is_top = i == self.screen_stack.len() - 1;
+            if is_top {
+                screen.behavior().render(f, area, &self.manager);
+            } else if i + 1 < self.screen_stack.len() && self.screen_stack[i + 1].behavior().is_modal() {
+                // Render parent of a modal, then overlay a dark background.
+                // ratatui doesn't support alpha blending, so this is a solid dark overlay
+                // rather than a true dim. This is acceptable — the modal draws on top anyway.
+                screen.behavior().render(f, area, &self.manager);
+                let dim = Block::default().style(Style::default().bg(Color::Rgb(0x0d, 0x0d, 0x1a)));
+                f.render_widget(dim, area);
+            }
+        }
+    }
+
+    fn process_action(&mut self, action: ScreenAction) {
+        match action {
+            ScreenAction::None => {}
+            ScreenAction::Push(screen) => {
+                self.screen_stack.push(screen);
+            }
+            ScreenAction::Pop => {
+                self.screen_stack.pop();
+                if self.screen_stack.is_empty() {
+                    self.should_quit = true;
+                } else if let Some(top) = self.screen_stack.last_mut() {
+                    top.behavior_mut().on_resume(&mut self.manager);
+                }
+            }
+            ScreenAction::PopWith(result) => {
+                self.screen_stack.pop();
+                if let Some(top) = self.screen_stack.last_mut() {
+                    let action = top.behavior_mut().on_child_result(result, &mut self.manager);
+                    self.process_action(action);
+                }
+            }
+            ScreenAction::Switch(switch_action) => {
+                switch::write_switch(&switch_action);
+                self.should_quit = true;
+            }
+            ScreenAction::Quit => {
+                self.should_quit = true;
+            }
+        }
+    }
+}
