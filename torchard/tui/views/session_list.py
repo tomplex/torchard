@@ -12,7 +12,7 @@ from textual.widgets import DataTable, Footer, Input, Static
 from textual.containers import Vertical
 
 from torchard.core import tmux
-from torchard.core.db import get_repos, get_worktrees_for_session
+from torchard.core.db import get_repos, get_worktrees_for_session, touch_session
 from torchard.core.manager import Manager
 from torchard.tui.switch import write_switch
 from torchard.tui.views.adopt_session import AdoptSessionScreen
@@ -179,11 +179,26 @@ class SessionListScreen(Screen):
         self._repos = {r.id: r for r in get_repos(self._manager._conn)}
         self._sessions = self._manager.list_sessions()
 
-        # Sort: "main" always first, then attached, then live, then dead
+        # Sort: main pinned to top, then most recently selected, then alphabetical.
+        # ISO timestamps sort lexicographically, so we negate by using a complement.
+        def _sort_key(s: dict) -> tuple:
+            if s["name"] == "main":
+                return (0,)
+            ts = s.get("last_selected_at") or ""
+            # Sessions with a timestamp sort before those without.
+            # Among timestamped sessions, more recent = higher priority (sort first).
+            # Negating by prepending "1" vs "2" and reversing the timestamp string.
+            if ts:
+                return (1, 0, ts)
+            return (1, 1, s["name"].lower())
+
+        self._sessions.sort(key=_sort_key)
+        # Reverse the timestamp ordering (we want newest first within group 1,0)
+        # Simpler: just do it in two stable passes
+        self._sessions.sort(key=lambda s: s.get("last_selected_at") or "", reverse=True)
         self._sessions.sort(key=lambda s: (
             0 if s["name"] == "main" else 1,
-            0 if s["attached"] else 1 if s["live"] else 2,
-            s["name"].lower(),
+            0 if s.get("last_selected_at") else 1,
         ))
 
         table = self.query_one(DataTable)
@@ -279,10 +294,17 @@ class SessionListScreen(Screen):
                         break
             table.move_cursor(row=target_row)
 
+    def _touch_by_name(self, session_name: str) -> None:
+        """Update last_selected_at for a session looked up by name."""
+        session = next((s for s in self._sessions if s["name"] == session_name and s["managed"] and s["id"]), None)
+        if session:
+            touch_session(self._manager._conn, session["id"])
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         row_key = event.row_key.value
         if row_key and row_key.startswith("win:"):
             parts = row_key.split(":", 2)
+            self._touch_by_name(parts[1])
             write_switch({"type": "window", "session": parts[1], "window": int(parts[2])})
             self.app.exit()
             return
@@ -313,6 +335,7 @@ class SessionListScreen(Screen):
             parts = row_key.split(":", 2)
             session_name = parts[1]
             window_index = int(parts[2])
+            self._touch_by_name(session_name)
             write_switch({"type": "window", "session": session_name, "window": window_index})
             self.app.exit()
             return
@@ -339,6 +362,8 @@ class SessionListScreen(Screen):
         session = self._session_for_row_key(row_key)
         if session is None:
             return
+        if session["managed"] and session["id"] is not None:
+            touch_session(self._manager._conn, session["id"])
         write_switch({"type": "session", "target": session["name"]})
         self.app.exit()
 
@@ -405,6 +430,8 @@ class SessionListScreen(Screen):
         import subprocess
         subprocess.run(["tmux", "new-window", "-t", session["name"], "-n", "claude"])
         subprocess.run(["tmux", "send-keys", "-t", f"{session['name']}:claude", "claude", "Enter"])
+        if session["managed"] and session["id"] is not None:
+            touch_session(self._manager._conn, session["id"])
         write_switch({"type": "session", "target": session["name"]})
         self.app.exit()
 

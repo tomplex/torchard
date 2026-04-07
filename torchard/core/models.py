@@ -16,6 +16,7 @@ class Session:
     base_branch: str
     created_at: str
     id: int | None = None
+    last_selected_at: str | None = None
 
 
 @dataclass

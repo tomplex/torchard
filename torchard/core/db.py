@@ -71,8 +71,17 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     # Seed defaults (INSERT OR IGNORE so existing values aren't overwritten)
     for key, value in _DEFAULT_CONFIG.items():
         conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", (key, value))
+    _migrate(conn)
     conn.commit()
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Run schema migrations. Each is idempotent."""
+    # Add last_selected_at to sessions
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if "last_selected_at" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN last_selected_at TEXT")
 
 
 # --- Config ---
@@ -126,20 +135,32 @@ def add_session(conn: sqlite3.Connection, session: Session) -> Session:
 
 
 def get_sessions(conn: sqlite3.Connection) -> list[Session]:
-    rows = conn.execute("SELECT id, name, repo_id, base_branch, created_at FROM sessions").fetchall()
+    rows = conn.execute("SELECT id, name, repo_id, base_branch, created_at, last_selected_at FROM sessions").fetchall()
     return [
-        Session(id=r["id"], name=r["name"], repo_id=r["repo_id"], base_branch=r["base_branch"], created_at=r["created_at"])
+        Session(id=r["id"], name=r["name"], repo_id=r["repo_id"], base_branch=r["base_branch"],
+                created_at=r["created_at"], last_selected_at=r["last_selected_at"])
         for r in rows
     ]
 
 
 def get_session_by_name(conn: sqlite3.Connection, name: str) -> Session | None:
     row = conn.execute(
-        "SELECT id, name, repo_id, base_branch, created_at FROM sessions WHERE name = ?", (name,)
+        "SELECT id, name, repo_id, base_branch, created_at, last_selected_at FROM sessions WHERE name = ?", (name,)
     ).fetchone()
     if row is None:
         return None
-    return Session(id=row["id"], name=row["name"], repo_id=row["repo_id"], base_branch=row["base_branch"], created_at=row["created_at"])
+    return Session(id=row["id"], name=row["name"], repo_id=row["repo_id"], base_branch=row["base_branch"],
+                   created_at=row["created_at"], last_selected_at=row["last_selected_at"])
+
+
+def touch_session(conn: sqlite3.Connection, session_id: int) -> None:
+    """Update last_selected_at to now."""
+    from datetime import datetime, timezone
+    conn.execute(
+        "UPDATE sessions SET last_selected_at = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), session_id),
+    )
+    conn.commit()
 
 
 def delete_session(conn: sqlite3.Connection, session_id: int) -> None:
