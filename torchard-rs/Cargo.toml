@@ -1,0 +1,19 @@
+[package]
+name = "torchard-rs"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "torchard-rs"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+md-5 = "0.10"
+regex = "1"
+time = { version = "0.3", features = ["formatting", "macros"] }
