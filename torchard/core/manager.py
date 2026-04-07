@@ -134,7 +134,8 @@ class Manager:
             # Feature branch: 3-window layout (claude, diff, shell)
             tmux.new_session(session_name, effective_dir)
             subprocess.run(["tmux", "rename-window", "-t", f"{session_name}:1", "claude"], capture_output=True)
-            subprocess.run(["tmux", "send-keys", "-t", f"{session_name}:1", "claude", "Enter"], capture_output=True)
+            from torchard.core.launch import launch_claude_in_window
+            launch_claude_in_window(session_name, "claude")
             tmux.new_window(session_name, "shell", effective_dir)
             subprocess.run(["tmux", "select-window", "-t", f"{session_name}:1"], capture_output=True)
         else:

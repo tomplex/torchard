@@ -68,12 +68,9 @@ class ReviewScreen(Screen):
             )
             return
 
-        # Launch claude in the new session's first window
-        import subprocess
-        subprocess.run([
-            "tmux", "send-keys", "-t", session.name,
-            "claude", "Enter",
-        ])
+        # Launch claude in the new session's first window with auto-naming
+        from torchard.core.launch import launch_claude_in_window
+        launch_claude_in_window(session.name, "claude")
 
         # Write switch file and exit
         from torchard.tui.switch import write_switch

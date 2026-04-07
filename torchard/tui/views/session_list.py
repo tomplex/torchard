@@ -477,10 +477,11 @@ class SessionListScreen(Screen):
         session = self._current_session()
         if session is None or not session["live"]:
             return
-        # Create a new window in the session and send claude to it
+        # Create a new window in the session and launch claude with auto-naming
         import subprocess
+        from torchard.core.launch import launch_claude_in_window
         subprocess.run(["tmux", "new-window", "-t", session["name"], "-n", "claude"])
-        subprocess.run(["tmux", "send-keys", "-t", f"{session['name']}:claude", "claude", "Enter"])
+        launch_claude_in_window(session["name"], "claude")
         if session["managed"] and session["id"] is not None:
             touch_session(self._manager._conn, session["id"])
         write_switch({"type": "session", "target": session["name"]})
