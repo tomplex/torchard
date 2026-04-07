@@ -15,6 +15,22 @@ from torchard.core import tmux
 from torchard.core.db import get_repos, get_worktrees_for_session, touch_session
 from torchard.core.fuzzy import fuzzy_match
 from torchard.core.manager import Manager
+
+# Consistent colors for repos - assigned by hash of repo name
+_REPO_COLORS = [
+    "#00aaff",  # blue
+    "#ff6b6b",  # red
+    "#51cf66",  # green
+    "#ffd43b",  # yellow
+    "#cc5de8",  # purple
+    "#ff922b",  # orange
+    "#22b8cf",  # cyan
+    "#f06595",  # pink
+]
+
+
+def _repo_color(repo_name: str) -> str:
+    return _REPO_COLORS[hash(repo_name) % len(_REPO_COLORS)]
 from torchard.tui.switch import write_switch
 from torchard.tui.views.adopt_session import AdoptSessionScreen
 from torchard.tui.views.cleanup import CleanupScreen
@@ -222,12 +238,28 @@ class SessionListScreen(Screen):
             scored.sort(key=lambda x: x[1])
             self._sessions = [s for s, _ in scored]
 
+        # Group by repo when not filtering
+        if not self._filter:
+            self._sessions.sort(key=lambda s: (
+                0 if s["name"] == "main" else 1,
+                (self._repos.get(s["repo_id"]).name if s["repo_id"] and self._repos.get(s["repo_id"]) else "zzz").lower(),
+                s.get("last_selected_at") or "",
+            ))
+            # Re-apply recency within groups
+            self._sessions.sort(key=lambda s: s.get("last_selected_at") or "", reverse=True)
+            self._sessions.sort(key=lambda s: (
+                0 if s["name"] == "main" else 1,
+                0 if s.get("last_selected_at") else 1,
+            ))
+
+        last_repo_name = None
         for session in self._sessions:
             repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
-            repo_name = repo.name if repo else "-"
+            repo_name = repo.name if repo else ""
             branch = session["base_branch"] or "-"
             base = repo.default_branch if repo else "-"
             windows = str(session["windows"]) if session["windows"] is not None else "-"
+            color = _repo_color(repo_name) if repo_name else "#666666"
 
             # Status indicator
             if session["attached"]:
@@ -254,9 +286,18 @@ class SessionListScreen(Screen):
             else:
                 branch_display = f"{base} → {branch}"
 
+            # Show repo name colored, only on first session in a group (when not filtering)
+            if not self._filter and repo_name != last_repo_name and repo_name:
+                repo_display = f"[{color}]{_truncate(repo_name, 20)}[/{color}]"
+            elif repo_name:
+                repo_display = f"[dim]{_truncate(repo_name, 20)}[/dim]"
+            else:
+                repo_display = "[dim]-[/dim]"
+            last_repo_name = repo_name
+
             table.add_row(
                 f"{dot} {expand} {name_display}{win_display}",
-                _truncate(repo_name, 20),
+                repo_display,
                 branch_display,
                 key=row_key,
             )
