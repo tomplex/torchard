@@ -184,41 +184,33 @@ class SessionListScreen(Screen):
     def on_screen_resume(self) -> None:
         self._refresh_table()
 
-    def _refresh_table(self, restore_key: str | None = None) -> None:
-        self._repos = {r.id: r for r in get_repos(self._manager._conn)}
-        self._sessions = self._manager.list_sessions()
+    def _session_sort_key(self, s: dict, grouped: bool) -> tuple:
+        """Composite sort key for sessions.
 
-        # Sort: main pinned to top, then most recently selected, then alphabetical.
-        # ISO timestamps sort lexicographically, so we negate by using a complement.
-        def _sort_key(s: dict) -> tuple:
-            if s["name"] == "main":
-                return (0,)
-            ts = s.get("last_selected_at") or ""
-            # Sessions with a timestamp sort before those without.
-            # Among timestamped sessions, more recent = higher priority (sort first).
-            # Negating by prepending "1" vs "2" and reversing the timestamp string.
-            if ts:
-                return (1, 0, ts)
-            return (1, 1, s["name"].lower())
+        Order: "main" pinned first, then sessions with recent activity (newest first),
+        then sessions without activity (alphabetical). When *grouped*, adds repo name
+        as a secondary key so sessions cluster by repo.
+        """
+        is_main = 0 if s["name"] == "main" else 1
+        has_ts = 0 if s.get("last_selected_at") else 1
+        # Negate timestamp so newest sorts first (lexicographic descending).
+        ts = s.get("last_selected_at") or ""
+        neg_ts = "".join(chr(0x10FFFF - ord(c)) for c in ts) if ts else "~"
+        if grouped:
+            repo = self._repos.get(s["repo_id"]) if s.get("repo_id") else None
+            repo_name = (repo.name if repo else "zzz").lower()
+            return (is_main, repo_name, has_ts, neg_ts)
+        return (is_main, has_ts, neg_ts)
 
-        self._sessions.sort(key=_sort_key)
-        # Reverse the timestamp ordering (we want newest first within group 1,0)
-        # Simpler: just do it in two stable passes
-        self._sessions.sort(key=lambda s: s.get("last_selected_at") or "", reverse=True)
-        self._sessions.sort(key=lambda s: (
-            0 if s["name"] == "main" else 1,
-            0 if s.get("last_selected_at") else 1,
-        ))
+    def _sorted_sessions(self) -> list[dict]:
+        """Return sessions sorted and filtered for display."""
+        sessions = self._manager.list_sessions()
 
-        table = self.query_one(DataTable)
-        table.clear()
-
-        # Apply fuzzy filter if active
         if self._filter:
+            # Fuzzy filter: rank by match quality
             scored: list[tuple[dict, int]] = []
-            for session in self._sessions:
+            for session in sessions:
                 repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
-                # Match against name, repo, or branch
                 candidates = [session["name"], repo.name if repo else "", session["base_branch"] or ""]
                 best = None
                 for c in candidates:
@@ -228,22 +220,14 @@ class SessionListScreen(Screen):
                 if best is not None:
                     scored.append((session, best))
             scored.sort(key=lambda x: x[1])
-            self._sessions = [s for s, _ in scored]
+            return [s for s, _ in scored]
 
-        # Group by repo when not filtering
-        if not self._filter:
-            self._sessions.sort(key=lambda s: (
-                0 if s["name"] == "main" else 1,
-                (self._repos.get(s["repo_id"]).name if s["repo_id"] and self._repos.get(s["repo_id"]) else "zzz").lower(),
-                s.get("last_selected_at") or "",
-            ))
-            # Re-apply recency within groups
-            self._sessions.sort(key=lambda s: s.get("last_selected_at") or "", reverse=True)
-            self._sessions.sort(key=lambda s: (
-                0 if s["name"] == "main" else 1,
-                0 if s.get("last_selected_at") else 1,
-            ))
+        # No filter: sort with repo grouping
+        sessions.sort(key=lambda s: self._session_sort_key(s, grouped=True))
+        return sessions
 
+    def _render_session_rows(self, table: DataTable) -> None:
+        """Populate the DataTable with rows for each session (and expanded child windows)."""
         last_repo_name = None
         for session in self._sessions:
             repo = self._repos.get(session["repo_id"]) if session["repo_id"] else None
@@ -296,7 +280,6 @@ class SessionListScreen(Screen):
 
             if expanded and session["live"]:
                 tmux_windows = tmux.list_windows(session["name"])
-                # Build worktree lookup by path for this session
                 wt_by_path: dict[str, str] = {}
                 if session["managed"] and session["id"] is not None:
                     for wt in get_worktrees_for_session(self._manager._conn, session["id"]):
@@ -306,9 +289,7 @@ class SessionListScreen(Screen):
                     prefix = "└" if is_last else "├"
                     wt_branch = wt_by_path.get(win["path"])
                     cmd = win.get("command", "")
-                    # Claude shows up as a version number (e.g. 2.1.89)
                     is_claude = bool(cmd and re.match(r"^\d+\.\d+\.\d+", cmd))
-                    # Rename version-numbered claude windows to first user message
                     if is_claude and re.match(r"^\d+\.\d+\.\d+", win["name"]):
                         _try_rename_claude_window(session["name"], win)
                     if is_claude:
@@ -317,21 +298,23 @@ class SessionListScreen(Screen):
                         cmd_display = f"[italic]{cmd}[/italic]"
                     else:
                         cmd_display = ""
-                    col_cmd = cmd_display
-                    col_detail = ""
-                    if wt_branch:
-                        col_detail = f"[dim]wt:[/dim] {wt_branch}"
-                    else:
-                        col_detail = f"[dim]{truncate_end(win['path'], 30)}[/dim]"
+                    col_detail = f"[dim]wt:[/dim] {wt_branch}" if wt_branch else f"[dim]{truncate_end(win['path'], 30)}[/dim]"
                     table.add_row(
                         f"      [dim]{prefix}[/dim] [dim]{win['name']}[/dim]",
-                        col_cmd,
+                        cmd_display,
                         col_detail,
                         key=f"win:{session['name']}:{win['index']}",
                     )
 
+    def _refresh_table(self, restore_key: str | None = None) -> None:
+        self._repos = {r.id: r for r in get_repos(self._manager._conn)}
+        self._sessions = self._sorted_sessions()
+
+        table = self.query_one(DataTable)
+        table.clear()
+        self._render_session_rows(table)
+
         if self._sessions:
-            # Restore cursor to the row with the given key, or row 0
             target_row = 0
             if restore_key is not None:
                 for i, rk in enumerate(table.rows):
