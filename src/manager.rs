@@ -652,6 +652,85 @@ impl Manager {
         }
     }
 
+    /// For each managed session, check its tmux windows for panes sitting in
+    /// worktree directories and adopt them (create or link DB records).
+    fn adopt_session_worktrees(
+        &self,
+        worktrees_root: &Path,
+        known_repos: &HashMap<String, Repo>,
+    ) {
+        let sessions = db::get_sessions(&self.conn);
+        let all_windows = tmux::list_all_windows();
+
+        for session in &sessions {
+            let windows = match all_windows.get(&session.name) {
+                Some(w) => w,
+                None => continue,
+            };
+
+            for win in windows {
+                let pane_path = Path::new(&win.path);
+
+                // Check if this pane is inside the worktrees directory
+                let rel = match pane_path.strip_prefix(worktrees_root) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+
+                // Expected structure: <repo_name>/<branch_name>[/...]
+                let mut components = rel.components();
+                let _repo_name = match components.next() {
+                    Some(c) => c.as_os_str().to_string_lossy().to_string(),
+                    None => continue,
+                };
+                let _branch_dir = match components.next() {
+                    Some(c) => c.as_os_str().to_string_lossy().to_string(),
+                    None => continue,
+                };
+
+                // The worktree path is worktrees_root/<repo>/<branch>
+                let wt_path = worktrees_root
+                    .join(&_repo_name)
+                    .join(&_branch_dir)
+                    .to_string_lossy()
+                    .to_string();
+
+                if let Some(existing) = db::get_worktree_by_path(&self.conn, &wt_path) {
+                    // Already tracked — link to this session if orphaned
+                    if existing.session_id.is_none() {
+                        db::link_worktree_to_session(
+                            &self.conn,
+                            existing.id.unwrap(),
+                            session.id.unwrap(),
+                        );
+                    }
+                } else {
+                    // Find the repo for this worktree
+                    let repos_dir = self.repos_dir();
+                    let repo_path_candidate =
+                        repos_dir.join(&_repo_name).to_string_lossy().to_string();
+                    let repo = match known_repos.get(&repo_path_candidate) {
+                        Some(r) => r,
+                        None => continue,
+                    };
+
+                    db::add_worktree(
+                        &self.conn,
+                        &Worktree {
+                            id: None,
+                            repo_id: repo.id.unwrap(),
+                            path: wt_path,
+                            branch: _branch_dir,
+                            session_id: session.id,
+                            tmux_window: Some(win.index),
+                            created_at: utc_now(),
+                        },
+                    );
+                }
+            }
+        }
+    }
+
     fn scan_tmux_sessions(&self, known_repos: &HashMap<String, Repo>) {
         let known_session_names: HashSet<String> = db::get_sessions(&self.conn)
             .into_iter()
@@ -702,6 +781,7 @@ impl Manager {
         self.scan_repos(&home_dev, &mut known_repos);
         self.scan_worktrees(&home_dev, &worktrees_root, &mut known_repos, &mut known_worktree_paths);
         self.scan_tmux_sessions(&known_repos);
+        self.adopt_session_worktrees(&worktrees_root, &known_repos);
     }
 
     // ------------------------------------------------------------------

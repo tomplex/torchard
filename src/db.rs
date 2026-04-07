@@ -264,6 +264,33 @@ pub fn get_worktrees_for_session(conn: &Connection, session_id: i64) -> Vec<Work
     .collect()
 }
 
+pub fn get_worktree_by_path(conn: &Connection, path: &str) -> Option<Worktree> {
+    conn.query_row(
+        "SELECT id, session_id, repo_id, path, branch, tmux_window, created_at FROM worktrees WHERE path = ?1",
+        params![path],
+        |row| {
+            Ok(Worktree {
+                id: Some(row.get(0)?),
+                session_id: row.get(1)?,
+                repo_id: row.get(2)?,
+                path: row.get(3)?,
+                branch: row.get(4)?,
+                tmux_window: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        },
+    )
+    .ok()
+}
+
+pub fn link_worktree_to_session(conn: &Connection, worktree_id: i64, session_id: i64) {
+    conn.execute(
+        "UPDATE worktrees SET session_id = ?1 WHERE id = ?2",
+        params![session_id, worktree_id],
+    )
+    .unwrap();
+}
+
 pub fn delete_worktree(conn: &Connection, worktree_id: i64) {
     conn.execute(
         "DELETE FROM worktrees WHERE id = ?1",

@@ -130,6 +130,23 @@ fn is_version_number(s: &str) -> bool {
 // SessionListScreen
 // --------------------------------------------------------------------------
 
+#[derive(Debug, Clone)]
+enum ConfirmAction {
+    DeleteSession { session_id: i64 },
+    KillTab { session_name: String, window_index: i64 },
+    KillSession { session_name: String },
+}
+
+#[derive(Debug)]
+enum InlineMode {
+    None,
+    Confirm { message: String, action: ConfirmAction },
+    Rename { input: String, cursor: usize, is_session: bool, session_id: Option<i64>, session_name: String, window_index: Option<i64> },
+    Review { input: String, cursor: usize, repo_index: usize, repos: Vec<Repo> },
+    NewTab { input: String, cursor: usize, session_id: i64, session_name: String },
+    ActionMenu { items: Vec<(String, String)>, cursor: usize },
+}
+
 /// Tracks which action we're waiting for a child screen result.
 #[derive(Debug, Clone)]
 enum PendingAction {
@@ -151,6 +168,8 @@ pub struct SessionListScreen {
     rows: Vec<RowData>,
     table_state: TableState,
     pending_action: PendingAction,
+    inline_mode: InlineMode,
+    status_message: Option<String>,
 }
 
 impl SessionListScreen {
@@ -165,6 +184,8 @@ impl SessionListScreen {
             rows: Vec::new(),
             table_state: TableState::default(),
             pending_action: PendingAction::None,
+            inline_mode: InlineMode::None,
+            status_message: None,
         };
         screen.refresh(manager);
         screen
@@ -389,7 +410,11 @@ impl SessionListScreen {
                 for (i, win) in tmux_windows.iter_mut().enumerate() {
                     let is_last = i == win_count - 1;
                     let prefix = if is_last { "└" } else { "├" };
-                    let wt_branch = wt_by_path.get(&win.path);
+                    let wt_branch = wt_by_path.get(&win.path).or_else(|| {
+                        wt_by_path.iter().find_map(|(path, branch)| {
+                            if win.path.starts_with(path) { Some(branch) } else { None }
+                        })
+                    });
                     let is_claude = !win.command.is_empty() && is_version_number(&win.command);
 
                     // Auto-rename version-numbered claude windows
@@ -1018,6 +1043,21 @@ impl SessionListScreen {
         Paragraph::new(Line::from(spans))
             .style(theme::style_footer())
     }
+
+    fn handle_confirm_key(&mut self, code: KeyCode, _manager: &mut Manager) -> ScreenAction {
+        match code {
+            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                // Will be implemented in Task 2
+                self.inline_mode = InlineMode::None;
+                ScreenAction::None
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                self.inline_mode = InlineMode::None;
+                ScreenAction::None
+            }
+            _ => ScreenAction::None,
+        }
+    }
 }
 
 impl ScreenBehavior for SessionListScreen {
@@ -1026,11 +1066,17 @@ impl ScreenBehavior for SessionListScreen {
         let has_filter = self.filter_active || !self.filter.is_empty();
         let filter_height = if has_filter { 1 } else { 0 };
 
+        let status_height = match &self.inline_mode {
+            InlineMode::None => if self.status_message.is_some() { 1 } else { 0 },
+            _ => 1,
+        };
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(filter_height),
                 Constraint::Min(0),
+                Constraint::Length(status_height),
                 Constraint::Length(1),
             ])
             .split(area);
@@ -1079,9 +1125,26 @@ impl ScreenBehavior for SessionListScreen {
         let mut state = self.table_state.clone();
         f.render_stateful_widget(table, chunks[1], &mut state);
 
+        // Status line
+        match &self.inline_mode {
+            InlineMode::None => {
+                if let Some(ref msg) = self.status_message {
+                    let status = Paragraph::new(msg.as_str())
+                        .style(Style::default().fg(theme::TEXT_DIM).bg(theme::BG));
+                    f.render_widget(status, chunks[2]);
+                }
+            }
+            InlineMode::Confirm { message, .. } => {
+                let status = Paragraph::new(message.as_str())
+                    .style(Style::default().fg(theme::YELLOW).bg(theme::BG));
+                f.render_widget(status, chunks[2]);
+            }
+            _ => {} // Other modes rendered in later tasks
+        }
+
         // Footer
         let footer = self.render_footer();
-        f.render_widget(footer, chunks[2]);
+        f.render_widget(footer, chunks[3]);
     }
 
     fn handle_event(&mut self, event: &Event, manager: &mut Manager) -> ScreenAction {
@@ -1114,6 +1177,14 @@ impl ScreenBehavior for SessionListScreen {
         let Event::Key(KeyEvent { code, kind: KeyEventKind::Press, .. }) = event else {
             return ScreenAction::None;
         };
+
+        // If an inline mode is active, route to mode-specific handler
+        match &self.inline_mode {
+            InlineMode::None => {}
+            InlineMode::Confirm { .. } => return self.handle_confirm_key(*code, manager),
+            // Other modes added in later tasks
+            _ => return ScreenAction::None,
+        }
 
         // If filter is active, handle filter-specific keys
         if self.filter_active {
