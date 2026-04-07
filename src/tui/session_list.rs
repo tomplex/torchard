@@ -684,7 +684,7 @@ impl SessionListScreen {
         ScreenAction::Push(Screen::ActionMenu(menu))
     }
 
-    fn action_rename(&self, manager: &Manager) -> ScreenAction {
+    fn action_rename(&mut self, _manager: &Manager) -> ScreenAction {
         let row_key = match self.current_row_key() {
             Some(k) => k,
             None => return ScreenAction::None,
@@ -698,12 +698,14 @@ impl SessionListScreen {
                 let window_index: i64 = parts[2].parse().unwrap_or(0);
                 let windows = tmux::list_windows(&session_name);
                 if let Some(win) = windows.iter().find(|w| w.index == window_index) {
-                    let screen = super::rename::RenameWindowScreen::new(
+                    self.inline_mode = InlineMode::Rename {
+                        input: win.name.clone(),
+                        cursor: win.name.len(),
+                        is_session: false,
+                        session_id: None,
                         session_name,
-                        window_index,
-                        win.name.clone(),
-                    );
-                    return ScreenAction::Push(Screen::RenameWindow(screen));
+                        window_index: Some(window_index),
+                    };
                 }
             }
             return ScreenAction::None;
@@ -715,14 +717,14 @@ impl SessionListScreen {
             None => return ScreenAction::None,
         };
         if session.managed {
-            if let Some(id) = session.id {
-                let screen = super::rename::RenameSessionScreen::new(
-                    manager,
-                    id,
-                    session.name.clone(),
-                );
-                return ScreenAction::Push(Screen::RenameSession(screen));
-            }
+            self.inline_mode = InlineMode::Rename {
+                input: session.name.clone(),
+                cursor: session.name.len(),
+                is_session: true,
+                session_id: session.id,
+                session_name: session.name.clone(),
+                window_index: None,
+            };
         }
         ScreenAction::None
     }
@@ -1032,6 +1034,61 @@ impl SessionListScreen {
             .style(theme::style_footer())
     }
 
+    fn handle_rename_key(&mut self, code: KeyCode, modifiers: crossterm::event::KeyModifiers, manager: &mut Manager) -> ScreenAction {
+        let (input, _cursor, is_session, session_id, session_name, window_index) = match &mut self.inline_mode {
+            InlineMode::Rename { input, cursor, is_session, session_id, session_name, window_index } => {
+                (input, cursor, *is_session, *session_id, session_name.clone(), *window_index)
+            }
+            _ => return ScreenAction::None,
+        };
+
+        match code {
+            KeyCode::Enter => {
+                let name = input.trim().to_string();
+                if name.is_empty() {
+                    self.status_message = Some("Name cannot be empty.".to_string());
+                    self.inline_mode = InlineMode::None;
+                    return ScreenAction::None;
+                }
+                if is_session {
+                    let sanitized = tmux::sanitize_session_name(&name);
+                    if let Some(id) = session_id {
+                        if manager.get_session_by_name(&sanitized).is_some() && sanitized != session_name {
+                            self.status_message = Some(format!("Session '{}' already exists.", sanitized));
+                            return ScreenAction::None;
+                        }
+                        if let Err(e) = manager.rename_session(id, &sanitized) {
+                            self.status_message = Some(format!("Error: {}", e));
+                            self.inline_mode = InlineMode::None;
+                            return ScreenAction::None;
+                        }
+                    }
+                } else if let Some(win_idx) = window_index {
+                    if let Err(e) = tmux::rename_window(&session_name, win_idx, &name) {
+                        self.status_message = Some(format!("Error: {}", e));
+                        self.inline_mode = InlineMode::None;
+                        return ScreenAction::None;
+                    }
+                }
+                self.status_message = Some("Renamed.".to_string());
+                self.inline_mode = InlineMode::None;
+                self.refresh(manager);
+                ScreenAction::None
+            }
+            KeyCode::Esc => {
+                self.inline_mode = InlineMode::None;
+                ScreenAction::None
+            }
+            _ => {
+                use super::rename::input_handle_key;
+                if let InlineMode::Rename { input, cursor, .. } = &mut self.inline_mode {
+                    input_handle_key(input, cursor, code, modifiers);
+                }
+                ScreenAction::None
+            }
+        }
+    }
+
     fn handle_confirm_key(&mut self, code: KeyCode, manager: &mut Manager) -> ScreenAction {
         let action = match &self.inline_mode {
             InlineMode::Confirm { action, .. } => action.clone(),
@@ -1143,6 +1200,41 @@ impl ScreenBehavior for SessionListScreen {
                     .style(Style::default().fg(theme::YELLOW).bg(theme::BG));
                 f.render_widget(status, chunks[2]);
             }
+            InlineMode::Rename { ref input, cursor: cursor_pos, .. } => {
+                // Show input hint in status line
+                let hint = Paragraph::new("[enter] confirm  [esc] cancel")
+                    .style(Style::default().fg(theme::TEXT_DIM).bg(theme::BG));
+                f.render_widget(hint, chunks[2]);
+
+                // Overlay input on the current row's Session column
+                let table_area = chunks[1];
+                let selected = self.table_state.selected().unwrap_or(0);
+                let scroll_offset = self.table_state.offset();
+                let visible_row = selected - scroll_offset;
+                let row_y = table_area.y + 1 + visible_row as u16; // +1 for header
+
+                if row_y < table_area.y + table_area.height {
+                    let session_col_width = table_area.width * 40 / 100; // matches Percentage(40)
+                    let input_area = Rect::new(table_area.x, row_y, session_col_width, 1);
+
+                    // Render input with cursor
+                    let before: String = input.chars().take(*cursor_pos).collect();
+                    let cursor_char = input.chars().nth(*cursor_pos).unwrap_or(' ');
+                    let after: String = input.chars().skip(*cursor_pos + 1).collect();
+
+                    let spans = vec![
+                        Span::styled(&before, Style::default().fg(theme::TEXT).bg(theme::CURSOR_BG)),
+                        Span::styled(
+                            cursor_char.to_string(),
+                            Style::default().fg(theme::BG).bg(theme::ACCENT),
+                        ),
+                        Span::styled(&after, Style::default().fg(theme::TEXT).bg(theme::CURSOR_BG)),
+                    ];
+                    let input_widget = Paragraph::new(Line::from(spans))
+                        .style(Style::default().bg(theme::CURSOR_BG));
+                    f.render_widget(input_widget, input_area);
+                }
+            }
             _ => {} // Other modes rendered in later tasks
         }
 
@@ -1178,7 +1270,7 @@ impl ScreenBehavior for SessionListScreen {
             }
         }
 
-        let Event::Key(KeyEvent { code, kind: KeyEventKind::Press, .. }) = event else {
+        let Event::Key(KeyEvent { code, modifiers, kind: KeyEventKind::Press, .. }) = event else {
             return ScreenAction::None;
         };
 
@@ -1186,7 +1278,7 @@ impl ScreenBehavior for SessionListScreen {
         match &self.inline_mode {
             InlineMode::None => {}
             InlineMode::Confirm { .. } => return self.handle_confirm_key(*code, manager),
-            // Other modes added in later tasks
+            InlineMode::Rename { .. } => return self.handle_rename_key(*code, *modifiers, manager),
             _ => return ScreenAction::None,
         }
 
@@ -1194,6 +1286,9 @@ impl ScreenBehavior for SessionListScreen {
         if self.filter_active {
             return self.handle_filter_key(*code, manager);
         }
+
+        // Clear status message on any normal key action
+        self.status_message = None;
 
         match code {
             KeyCode::Char('q') => ScreenAction::Quit,
