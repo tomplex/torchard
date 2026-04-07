@@ -101,7 +101,7 @@ class CleanupScreen(Screen):
     def _check_staleness(self) -> None:
         stale = self._manager.get_stale_worktrees()
         self._stale_ids = {wt.id for wt in stale if wt.id is not None}
-        self.call_from_thread(self._apply_stale_status)
+        self.app.call_from_thread(self._apply_stale_status)
 
     def _apply_stale_status(self) -> None:
         table = self.query_one(DataTable)
