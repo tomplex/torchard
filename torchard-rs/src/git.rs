@@ -158,7 +158,7 @@ pub fn create_worktree(
 }
 
 pub fn remove_worktree(repo_path: &str, worktree_path: &str) -> Result<(), GitError> {
-    let output = run(&["worktree", "remove", worktree_path], Some(repo_path));
+    let output = run(&["worktree", "remove", "--force", worktree_path], Some(repo_path));
     if !output.status.success() {
         return Err(GitError(format!(
             "Failed to remove worktree '{}': {}",
