@@ -13,7 +13,7 @@ use super::theme;
 // Shared text input helpers
 // ---------------------------------------------------------------------------
 
-fn input_handle_key(input: &mut String, cursor: &mut usize, code: KeyCode, modifiers: KeyModifiers) {
+pub fn input_handle_key(input: &mut String, cursor: &mut usize, code: KeyCode, modifiers: KeyModifiers) {
     match code {
         KeyCode::Char(c) => {
             // Ctrl+U: clear line
@@ -83,7 +83,7 @@ fn input_handle_key(input: &mut String, cursor: &mut usize, code: KeyCode, modif
 }
 
 /// Render a text input line with cursor highlighting into the given area.
-fn render_input(f: &mut Frame, area: Rect, input: &str, cursor_pos: usize) {
+pub fn render_input(f: &mut Frame, area: Rect, input: &str, cursor_pos: usize) {
     let cursor_char_len = if cursor_pos < input.len() {
         input[cursor_pos..].chars().next().map(|c| c.len_utf8()).unwrap_or(0)
     } else {
@@ -110,7 +110,7 @@ fn render_input(f: &mut Frame, area: Rect, input: &str, cursor_pos: usize) {
 }
 
 /// Render the centered modal box and return the inner area.
-fn render_modal_box(f: &mut Frame, area: Rect, title: &str, width: u16, height: u16) -> Rect {
+pub fn render_modal_box(f: &mut Frame, area: Rect, title: &str, width: u16, height: u16) -> Rect {
     let vert = Layout::vertical([
         Constraint::Fill(1),
         Constraint::Length(height),
