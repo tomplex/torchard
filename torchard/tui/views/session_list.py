@@ -12,6 +12,7 @@ from textual.widgets import DataTable, Footer, Input, Static
 from textual.containers import Vertical
 
 from torchard.core import tmux
+from torchard.core.claude_session import get_session_id, get_first_user_message, summarize_message
 from torchard.core.db import get_repos, get_worktrees_for_session, touch_session
 from torchard.core.fuzzy import fuzzy_match
 from torchard.core.manager import Manager
@@ -32,6 +33,7 @@ _REPO_COLORS = [
 def _repo_color(repo_name: str) -> str:
     return _REPO_COLORS[hash(repo_name) % len(_REPO_COLORS)]
 from torchard.tui.switch import write_switch
+from torchard.tui.views.action_menu import ActionMenu
 from torchard.tui.views.adopt_session import AdoptSessionScreen
 from torchard.tui.views.cleanup import CleanupScreen
 from torchard.tui.views.confirm import ConfirmModal
@@ -48,23 +50,19 @@ _HELP_TEXT = """\
 [bold #00aaff]torchard[/bold #00aaff] — tmux session & worktree manager
 
 [bold]Session List[/bold]
-  [#00aaff]enter[/#00aaff]     Switch to session
-  [#00aaff]tab[/#00aaff]       Expand/collapse worktrees
-  [#00aaff]n[/#00aaff]         New managed session
-  [#00aaff]w[/#00aaff]         New worktree tab in session
-  [#00aaff]d[/#00aaff]         Delete session
-  [#00aaff]r[/#00aaff]         Rename session
-  [#00aaff]b[/#00aaff]         Change branch
-  [#00aaff]g[/#00aaff]         Launch claude in session
-  [#00aaff]p[/#00aaff]         Checkout PR/branch + claude
+  [#00aaff]enter[/#00aaff]     Switch to session/tab
+  [#00aaff]tab[/#00aaff]       Expand/collapse tabs
+  [#00aaff]n[/#00aaff]         New… (session, tab, or PR review)
+  [#00aaff]d[/#00aaff]         Delete session or kill tab
   [#00aaff]h[/#00aaff]         Conversation history
-  [#00aaff]a[/#00aaff]         Adopt unmanaged session
-  [#00aaff]c[/#00aaff]         Cleanup stale worktrees
+  [#00aaff].[/#00aaff]         Actions menu
   [#00aaff]j/k[/#00aaff]       Navigate up/down
   [#00aaff]/[/#00aaff]         Filter sessions
-  [#00aaff]x[/#00aaff]         Kill tab (on expanded tab)
-  [#00aaff]S[/#00aaff]         Settings
   [#00aaff]q[/#00aaff]         Quit
+
+[bold]Actions menu (.)[/bold]
+  Rename, change branch, launch claude,
+  adopt, cleanup, settings
 
 [bold]Cleanup View[/bold]
   [#00aaff]space/enter[/#00aaff]  Toggle selection
@@ -120,18 +118,11 @@ class SessionListScreen(Screen):
         Binding("k,up", "cursor_up", "Up", show=False),
         Binding("enter", "select", "Switch"),
         Binding("tab", "toggle_expand", "Expand"),
-        Binding("n", "new_session", "New"),
-        Binding("w", "new_tab", "Tab"),
-        Binding("x", "kill_window", "Kill tab", show=False),
-        Binding("d", "delete_session", "Delete"),
-        Binding("r", "rename", "Rename"),
-        Binding("b", "edit_branch", "Rebranch"),
-        Binding("g", "launch_claude", "Claude"),
-        Binding("p", "review", "PR/Branch"),
-        Binding("a", "adopt", "Adopt"),
+        Binding("n", "new_picker", "New"),
+        Binding("d", "delete", "Delete"),
         Binding("h", "history", "History"),
-        Binding("c", "cleanup", "Cleanup"),
-        Binding("S", "settings", "Settings", show=False),
+        Binding("full_stop", "action_menu", "Actions"),
+        Binding("S", "settings", "Settings"),
         Binding("question_mark", "help", "Help"),
     ]
 
@@ -316,6 +307,9 @@ class SessionListScreen(Screen):
                     cmd = win.get("command", "")
                     # Claude shows up as a version number (e.g. 2.1.89)
                     is_claude = bool(cmd and re.match(r"^\d+\.\d+\.\d+", cmd))
+                    # Rename version-numbered claude windows to first user message
+                    if is_claude and re.match(r"^\d+\.\d+\.\d+", win["name"]):
+                        _try_rename_claude_window(session["name"], win)
                     if is_claude:
                         cmd_display = "[#E87B35]✦ claude[/#E87B35]"
                     elif cmd and cmd != "zsh":
@@ -428,107 +422,74 @@ class SessionListScreen(Screen):
     def action_quit(self) -> None:
         self.app.exit()
 
-    def action_new_session(self) -> None:
-        self.app.push_screen(NewSessionScreen(self._manager))
-
     def _current_session(self) -> dict | None:
-        """Get the session for the current row, or None if on a worktree row."""
+        """Get the session for the current row, or None if on a child row."""
         row_key = self._current_row_key()
         if row_key is None or self._is_child_row(row_key):
             return None
         return self._session_for_row_key(row_key)
 
-    def action_new_tab(self) -> None:
-        session = self._current_session()
-        if session is None or not session["managed"]:
-            return
-        self.app.push_screen(NewTabScreen(self._manager, session["id"], session["name"]))
+    # ------------------------------------------------------------------
+    # New… picker (n)
+    # ------------------------------------------------------------------
 
-    def action_rename(self) -> None:
+    def action_new_picker(self) -> None:
+        session = self._current_session()
+        items: list[tuple[str, str, str]] = [
+            ("new-session", "New session", ""),
+        ]
+        if session and session["managed"]:
+            items.append(("new-tab", f"New tab in {session['name']}", ""))
+        repo = self._repos.get(session["repo_id"]) if session and session["repo_id"] else None
+        if repo:
+            items.append(("review", "Review PR/branch", repo.name))
+        self.app.push_screen(ActionMenu("New…", items), self._on_new_picked)
+
+    def _on_new_picked(self, key: str | None) -> None:
+        if key is None:
+            return
+        session = self._current_session()
+        if key == "new-session":
+            self.app.push_screen(NewSessionScreen(self._manager))
+        elif key == "new-tab" and session and session["managed"]:
+            self.app.push_screen(NewTabScreen(self._manager, session["id"], session["name"]))
+        elif key == "review" and session and session["repo_id"]:
+            repo = self._repos.get(session["repo_id"])
+            if repo:
+                self.app.push_screen(ReviewScreen(self._manager, repo.path, repo.name))
+
+    # ------------------------------------------------------------------
+    # Context-aware delete (d)
+    # ------------------------------------------------------------------
+
+    def action_delete(self) -> None:
         row_key = self._current_row_key()
         if row_key is None:
             return
-        # Rename a tmux window (tab)
+        # Kill a tab
         if row_key.startswith("win:"):
-            # key format: win:<session_name>:<index>
             parts = row_key.split(":", 2)
             session_name = parts[1]
             window_index = int(parts[2])
-            # Get current window name from tmux
-            windows = tmux.list_windows(session_name)
-            win = next((w for w in windows if w["index"] == window_index), None)
-            if win is None:
-                return
-            self.app.push_screen(RenameWindowScreen(session_name, window_index, win["name"]))
-            return
-        # Rename a session
-        session = self._current_session()
-        if session is None or not session["managed"]:
-            return
-        self.app.push_screen(RenameSessionScreen(self._manager, session["id"], session["name"]))
 
-    def action_edit_branch(self) -> None:
-        session = self._current_session()
-        if session is None or not session["managed"]:
+            def on_confirm_tab(confirmed: bool) -> None:
+                if not confirmed:
+                    return
+                try:
+                    tmux.kill_window(session_name, window_index)
+                except tmux.TmuxError:
+                    pass
+                self._refresh_table()
+
+            self.app.push_screen(
+                ConfirmModal(f"Kill tab {window_index} in '{session_name}'?", "This will close the window and any processes in it."),
+                on_confirm_tab,
+            )
             return
-        self.app.push_screen(EditBranchScreen(self._manager, session["id"], session["name"]))
-
-    def action_launch_claude(self) -> None:
-        session = self._current_session()
-        if session is None or not session["live"]:
-            return
-        # Create a new window in the session and launch claude with auto-naming
-        import subprocess
-        from torchard.core.launch import launch_claude_in_window
-        subprocess.run(["tmux", "new-window", "-t", session["name"], "-n", "claude"])
-        launch_claude_in_window(session["name"], "claude")
-        if session["managed"] and session["id"] is not None:
-            touch_session(self._manager._conn, session["id"])
-        write_switch({"type": "session", "target": session["name"]})
-        self.app.exit()
-
-    def action_review(self) -> None:
-        session = self._current_session()
-        if session is None or not session["managed"]:
-            return
-        repo = self._repos.get(session["repo_id"])
-        if repo is None:
-            return
-        self.app.push_screen(ReviewScreen(self._manager, repo.path, repo.name))
-
-    def action_adopt(self) -> None:
-        session = self._current_session()
-        if session is None or session["managed"]:
-            return
-        self.app.push_screen(AdoptSessionScreen(self._manager, session["name"]))
-
-    def action_kill_window(self) -> None:
-        row_key = self._current_row_key()
-        if row_key is None or not row_key.startswith("win:"):
-            return
-        parts = row_key.split(":", 2)
-        session_name = parts[1]
-        window_index = int(parts[2])
-
-        def on_confirm(confirmed: bool) -> None:
-            if not confirmed:
-                return
-            try:
-                tmux.kill_window(session_name, window_index)
-            except tmux.TmuxError:
-                pass
-            self._refresh_table()
-
-        self.app.push_screen(
-            ConfirmModal(f"Kill tab {window_index} in '{session_name}'?", "This will close the window and any processes in it."),
-            on_confirm,
-        )
-
-    def action_delete_session(self) -> None:
-        session = self._current_session()
+        # Delete a session
+        session = self._session_for_row_key(row_key)
         if session is None:
             return
-
         if session["managed"]:
             name = session["name"]
             msg = "Remove from torchard."
@@ -546,7 +507,6 @@ class SessionListScreen(Screen):
                 on_confirm,
             )
         else:
-            # Unmanaged - just offer to kill the tmux session
             name = session["name"]
 
             def on_confirm_kill(confirmed: bool) -> None:
@@ -562,6 +522,78 @@ class SessionListScreen(Screen):
                 ConfirmModal(f"Kill tmux session '{name}'?", "This will close all windows in the session."),
                 on_confirm_kill,
             )
+
+    # ------------------------------------------------------------------
+    # Action menu (.)
+    # ------------------------------------------------------------------
+
+    def action_action_menu(self) -> None:
+        row_key = self._current_row_key()
+        if row_key is None:
+            return
+
+        # Tab-level actions
+        if row_key.startswith("win:"):
+            parts = row_key.split(":", 2)
+            session_name = parts[1]
+            window_index = int(parts[2])
+            windows = tmux.list_windows(session_name)
+            win = next((w for w in windows if w["index"] == window_index), None)
+            items: list[tuple[str, str, str]] = []
+            if win:
+                items.append(("rename-tab", "Rename tab", win["name"]))
+            self.app.push_screen(ActionMenu(f"Tab actions", items), self._on_action_picked)
+            return
+
+        session = self._current_session()
+        if session is None:
+            return
+
+        items = []
+        if session["managed"]:
+            items.append(("rename", "Rename", session["name"]))
+            items.append(("branch", "Change branch", session["base_branch"] or ""))
+            if session["live"]:
+                items.append(("claude", "Launch claude", ""))
+        elif session["live"]:
+            items.append(("adopt", "Adopt session", "bring under torchard management"))
+        items.append(("cleanup", "Cleanup worktrees", ""))
+
+        self.app.push_screen(ActionMenu(f"Actions — {session['name']}", items), self._on_action_picked)
+
+    def _on_action_picked(self, key: str | None) -> None:
+        if key is None:
+            return
+        row_key = self._current_row_key()
+        session = self._current_session()
+
+        if key == "rename-tab" and row_key and row_key.startswith("win:"):
+            parts = row_key.split(":", 2)
+            session_name = parts[1]
+            window_index = int(parts[2])
+            windows = tmux.list_windows(session_name)
+            win = next((w for w in windows if w["index"] == window_index), None)
+            if win:
+                self.app.push_screen(RenameWindowScreen(session_name, window_index, win["name"]))
+            return
+
+        if session is None:
+            return
+        if key == "rename" and session["managed"]:
+            self.app.push_screen(RenameSessionScreen(self._manager, session["id"], session["name"]))
+        elif key == "branch" and session["managed"]:
+            self.app.push_screen(EditBranchScreen(self._manager, session["id"], session["name"]))
+        elif key == "claude" and session["live"]:
+            tmux.new_window(session["name"], "claude")
+            tmux.send_keys(f"{session['name']}:claude", "claude", "Enter")
+            if session["managed"] and session["id"] is not None:
+                touch_session(self._manager._conn, session["id"])
+            write_switch({"type": "session", "target": session["name"]})
+            self.app.exit()
+        elif key == "adopt" and not session["managed"]:
+            self.app.push_screen(AdoptSessionScreen(self._manager, session["name"]))
+        elif key == "cleanup":
+            self.app.push_screen(CleanupScreen(self._manager))
 
     def action_history(self) -> None:
         session = self._current_session()
@@ -584,9 +616,6 @@ class SessionListScreen(Screen):
                 scope_label = session["name"]
         self.app.push_screen(HistoryScreen(self._manager, scope_paths, scope_label))
 
-    def action_cleanup(self) -> None:
-        self.app.push_screen(CleanupScreen(self._manager))
-
     def action_settings(self) -> None:
         self.app.push_screen(SettingsScreen(self._manager))
 
@@ -594,15 +623,22 @@ class SessionListScreen(Screen):
         self.app.push_screen(HelpScreen())
 
 
-def _get_claude_session_id(pane_pid: str) -> str | None:
-    """Look up the Claude session UUID for a given pane PID."""
-    if not pane_pid:
-        return None
-    pid_file = Path("/tmp/claude-sessions") / f"pid-{pane_pid}"
+
+def _try_rename_claude_window(session_name: str, win: dict) -> None:
+    """Rename a claude window from its version number to the first user message."""
+    session_id = get_session_id(win.get("pane_pid", ""))
+    if not session_id:
+        return
+    msg = get_first_user_message(session_id)
+    if not msg:
+        return
+    name = summarize_message(msg)
     try:
-        return pid_file.read_text().strip() if pid_file.exists() else None
-    except OSError:
-        return None
+        tmux.rename_window(session_name, win["index"], name)
+        win["name"] = name
+    except tmux.TmuxError:
+        pass
+
 
 
 

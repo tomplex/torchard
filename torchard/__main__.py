@@ -6,8 +6,8 @@ def main() -> None:
     from torchard.tui.app import TorchardApp
 
     import json
-    import subprocess
 
+    from torchard.core import tmux
     from torchard.tui.switch import SWITCH_FILE
 
     # Clean up any stale switch file
@@ -25,9 +25,9 @@ def main() -> None:
         try:
             action = json.loads(SWITCH_FILE.read_text())
             if action["type"] == "session":
-                subprocess.run(["tmux", "switch-client", "-t", action["target"]])
+                tmux.switch_client(action["target"])
             elif action["type"] == "window":
-                subprocess.run(["tmux", "switch-client", "-t", f"{action['session']}:{action['window']}"])
+                tmux.switch_client(f"{action['session']}:{action['window']}")
         finally:
             SWITCH_FILE.unlink(missing_ok=True)
 

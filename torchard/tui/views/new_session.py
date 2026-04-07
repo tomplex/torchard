@@ -13,7 +13,7 @@ from textual.widgets import Footer, Input, Label, ListItem, ListView, Static
 
 from torchard.core import tmux
 from torchard.core.db import get_session_by_name
-from torchard.core.git import GitError, list_branches
+from torchard.core.git import GitError, detect_default_branch, list_branches
 from torchard.core.manager import Manager, detect_subsystems
 from torchard.core.models import Repo
 
@@ -312,8 +312,7 @@ class NewSessionScreen(Screen):
         elif self._step == 2 and typed_value:
             # Treat typed text as a new branch name (no list match needed)
             self._selected_branch = typed_value
-            self._step = 3
-            self._render_step()
+            self._advance_after_branch()
 
     def _select_repo_item(self, item_id: str | None) -> None:
         if item_id and item_id.startswith("add-repo"):
@@ -332,18 +331,50 @@ class NewSessionScreen(Screen):
             self._step = 2
             self._render_step()
 
+    def _auto_session_name(self) -> str:
+        """Derive a session name from the selected repo and branch."""
+        assert self._selected_repo is not None
+        assert self._selected_branch is not None
+        # Use repo name when on the default branch, otherwise use the branch name
+        try:
+            default = detect_default_branch(self._selected_repo.path)
+        except GitError:
+            default = "main"
+        if self._selected_branch == default:
+            base = self._selected_repo.name
+        else:
+            base = self._selected_branch
+        name = _sanitize_for_tmux(base)
+        # Deduplicate if a session with this name already exists
+        if get_session_by_name(self._manager._conn, name) is None:
+            return name
+        for i in range(2, 100):
+            candidate = f"{name}-{i}"
+            if get_session_by_name(self._manager._conn, candidate) is None:
+                return candidate
+        return name
+
     def _select_branch_item(self, item_id: str | None) -> None:
         if item_id and item_id.startswith("new-branch"):
             typed = self.query_one("#filter-input", Input).value
             if typed:
                 self._selected_branch = typed
-                self._step = 3
-                self._render_step()
+                self._advance_after_branch()
             return
         if item_id and item_id in self._id_to_branch:
             self._selected_branch = self._id_to_branch[item_id]
-            self._step = 3
+            self._advance_after_branch()
+
+    def _advance_after_branch(self) -> None:
+        """After branch is selected, auto-name and skip to subsystems or create."""
+        self._session_name = self._auto_session_name()
+        assert self._selected_repo is not None
+        self._subsystems = detect_subsystems(self._selected_repo.path)
+        if self._subsystems:
+            self._step = 4
             self._render_step()
+        else:
+            self._create_session(self._session_name)
 
     def _confirm_session_name(self, name: str) -> None:
         name = name.strip()
@@ -470,12 +501,16 @@ class NewSessionScreen(Screen):
             return
         if self._step == 1:
             self.app.pop_screen()
+        elif self._step == 4:
+            # Skip step 3 (name is auto-generated), go back to branch
+            self._step = 2
+            self._selected_branch = None
+            self._selected_subdirectory = None
+            self._render_step()
         else:
             self._step -= 1
             if self._step == 1:
                 self._selected_repo = None
             elif self._step == 2:
                 self._selected_branch = None
-            elif self._step == 3:
-                self._selected_subdirectory = None
             self._render_step()

@@ -50,6 +50,14 @@ def _patch_tmux_new_window():
     return patch("torchard.core.manager.tmux.new_window")
 
 
+def _patch_tmux_rename_window():
+    return patch("torchard.core.manager.tmux.rename_window")
+
+
+def _patch_tmux_select_window():
+    return patch("torchard.core.manager.tmux.select_window")
+
+
 def _patch_tmux_kill_session():
     return patch("torchard.core.manager.tmux.kill_session")
 
@@ -107,7 +115,8 @@ class TestCreateSession:
             _patch_tmux_new_window(),
             _patch_git_create_worktree(),
             _patch_git_fetch_and_pull(),
-            patch("torchard.core.manager.subprocess.run"),
+            _patch_tmux_rename_window(),
+            _patch_tmux_select_window(),
         ):
             session = mgr.create_session(REPO_PATH, "feature", SESSION_NAME)
         assert isinstance(session, Session)

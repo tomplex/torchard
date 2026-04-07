@@ -62,20 +62,20 @@ class ReviewScreen(Screen):
                 self._repo_path, pr_or_branch,
             )
         except Exception as exc:
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.query_one("#review-error", Static).update,
                 f"[red]{exc}[/red]",
             )
             return
 
-        # Launch claude in the new session's first window with auto-naming
-        from torchard.core.launch import launch_claude_in_window
-        launch_claude_in_window(session.name, "claude")
+        # Launch claude in the first window
+        from torchard.core import tmux
+        tmux.send_keys(f"{session.name}:claude", "claude", "Enter")
 
         # Write switch file and exit
         from torchard.tui.switch import write_switch
         write_switch({"type": "session", "target": session.name})
-        self.call_from_thread(self.app.exit)
+        self.app.call_from_thread(self.app.exit)
 
     def action_cancel(self) -> None:
         self.app.pop_screen()

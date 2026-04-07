@@ -9,7 +9,6 @@ dependencies = [
 
 [project.scripts]
 torchard = "torchard.__main__:main"
-torchard-auto-name = "torchard.auto_name_cli:main"
 
 [build-system]
 requires = ["hatchling"]

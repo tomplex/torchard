@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -133,11 +132,10 @@ class Manager:
         if start_dir != repo_path:
             # Feature branch: 3-window layout (claude, diff, shell)
             tmux.new_session(session_name, effective_dir)
-            subprocess.run(["tmux", "rename-window", "-t", f"{session_name}:1", "claude"], capture_output=True)
-            from torchard.core.launch import launch_claude_in_window
-            launch_claude_in_window(session_name, "claude")
+            tmux.rename_window(session_name, 1, "claude")
+            tmux.send_keys(f"{session_name}:claude", "claude", "Enter")
             tmux.new_window(session_name, "shell", effective_dir)
-            subprocess.run(["tmux", "select-window", "-t", f"{session_name}:1"], capture_output=True)
+            tmux.select_window(session_name, 1)
         else:
             tmux.new_session(session_name, effective_dir)
 
@@ -253,6 +251,9 @@ class Manager:
             ),
         )
         tmux.new_session(session_name, worktree_path)
+        tmux.rename_window(session_name, 1, "claude")
+        tmux.new_window(session_name, "shell", worktree_path)
+        tmux.select_window(session_name, 1)
 
         # Record worktree
         add_worktree(

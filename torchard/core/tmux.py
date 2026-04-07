@@ -65,20 +65,12 @@ def switch_client(session_name: str) -> None:
         )
 
 
-def new_window(session_name: str, window_name: str, start_dir: str) -> None:
+def new_window(session_name: str, window_name: str, start_dir: str | None = None) -> None:
     """Create a new window in the given session."""
-    result = _run(
-        [
-            "tmux",
-            "new-window",
-            "-t",
-            session_name,
-            "-n",
-            window_name,
-            "-c",
-            start_dir,
-        ]
-    )
+    cmd = ["tmux", "new-window", "-t", session_name, "-n", window_name]
+    if start_dir:
+        cmd += ["-c", start_dir]
+    result = _run(cmd)
     if result.returncode != 0:
         raise TmuxError(
             f"Failed to create window '{window_name}' in session '{session_name}': "
@@ -140,6 +132,19 @@ def kill_window(session_name: str, window_index: int) -> None:
         raise TmuxError(
             f"Failed to kill window {window_index} in '{session_name}': {result.stderr.strip()}"
         )
+
+
+def send_keys(target: str, *keys: str) -> None:
+    """Send keys to a tmux target (e.g. 'session:window')."""
+    _run(["tmux", "send-keys", "-t", target, *keys])
+
+
+
+def get_pane_pid(target: str) -> str | None:
+    """Get the PID of the active pane in a target."""
+    result = _run(["tmux", "display-message", "-t", target, "-p", "#{pane_pid}"])
+    pid = result.stdout.strip() if result.returncode == 0 else ""
+    return pid or None
 
 
 def kill_session(session_name: str) -> None:
