@@ -151,7 +151,6 @@ enum InlineMode {
 #[derive(Debug, Clone)]
 enum PendingAction {
     None,
-    NewPicker,
     ActionMenu,
 }
 
@@ -665,23 +664,43 @@ impl SessionListScreen {
     // Actions
     // ------------------------------------------------------------------
 
-    fn action_new_picker(&mut self, _manager: &Manager) -> ScreenAction {
-        let session = self.current_session();
-        let mut items = vec![
-            ("new-session".to_string(), "New session".to_string(), String::new()),
-        ];
-        if let Some(s) = session {
-            if s.managed {
-                items.push((
-                    "new-tab".to_string(),
-                    format!("New tab in {}", s.name),
-                    String::new(),
-                ));
+    fn action_new_tab(&mut self, _manager: &Manager) -> ScreenAction {
+        // Find the managed session for the current row
+        let session = match self.current_session() {
+            Some(s) if s.managed => s.clone(),
+            _ => {
+                // Try parent session if on a child row
+                if let Some(key) = self.current_row_key() {
+                    if key.starts_with("win:") {
+                        let parts: Vec<&str> = key.splitn(3, ':').collect();
+                        if parts.len() >= 2 {
+                            let session_name = parts[1];
+                            if let Some(s) = self.sessions.iter().find(|s| s.name == session_name && s.managed) {
+                                let s = s.clone();
+                                self.inline_mode = InlineMode::NewTab {
+                                    input: String::new(),
+                                    cursor: 0,
+                                    session_id: s.id.unwrap(),
+                                    session_name: s.name.clone(),
+                                };
+                                return ScreenAction::None;
+                            }
+                        }
+                    }
+                }
+                self.status_message = Some("No managed session selected.".to_string());
+                return ScreenAction::None;
             }
+        };
+        if let Some(id) = session.id {
+            self.inline_mode = InlineMode::NewTab {
+                input: String::new(),
+                cursor: 0,
+                session_id: id,
+                session_name: session.name.clone(),
+            };
         }
-        self.pending_action = PendingAction::NewPicker;
-        let menu = super::action_menu::ActionMenuScreen::new("New\u{2026}".to_string(), items);
-        ScreenAction::Push(Screen::ActionMenu(menu))
+        ScreenAction::None
     }
 
     fn action_rename(&mut self, _manager: &Manager) -> ScreenAction {
@@ -920,32 +939,6 @@ impl SessionListScreen {
     // Child result handlers
     // ------------------------------------------------------------------
 
-    fn handle_new_picked(&mut self, key: Option<String>, manager: &Manager) -> ScreenAction {
-        let key = match key {
-            Some(k) => k,
-            None => return ScreenAction::None,
-        };
-        let session = self.current_session().cloned();
-        match key.as_str() {
-            "new-session" => {
-                let screen = super::new_session::NewSessionScreen::new(manager);
-                ScreenAction::Push(Screen::NewSession(screen))
-            }
-            "new-tab" => {
-                if let Some(s) = session {
-                    if s.managed {
-                        if let Some(id) = s.id {
-                            let screen = super::new_tab::NewTabScreen::new(manager, id, s.name.clone());
-                            return ScreenAction::Push(Screen::NewTab(screen));
-                        }
-                    }
-                }
-                ScreenAction::None
-            }
-            _ => ScreenAction::None,
-        }
-    }
-
     fn handle_action_picked(&mut self, key: Option<String>, manager: &Manager) -> ScreenAction {
         let key = match key {
             Some(k) => k,
@@ -1038,6 +1031,7 @@ impl SessionListScreen {
             ("enter", "Switch"),
             ("h/l", "Collapse/Expand"),
             ("n", "New"),
+            ("t", "Tab"),
             ("r", "Rename"),
             ("R", "Review"),
             ("d", "Delete"),
@@ -1199,6 +1193,50 @@ impl SessionListScreen {
             }
         }
     }
+
+    fn handle_new_tab_key(&mut self, code: KeyCode, modifiers: crossterm::event::KeyModifiers, manager: &mut Manager) -> ScreenAction {
+        match code {
+            KeyCode::Enter => {
+                let (input, session_id, session_name) = match &self.inline_mode {
+                    InlineMode::NewTab { input, session_id, session_name, .. } => {
+                        (input.trim().to_string(), *session_id, session_name.clone())
+                    }
+                    _ => return ScreenAction::None,
+                };
+                if input.is_empty() {
+                    self.status_message = Some("Branch name cannot be empty.".to_string());
+                    return ScreenAction::None;
+                }
+                self.inline_mode = InlineMode::None;
+                match manager.add_tab(session_id, &input) {
+                    Ok(_) => {
+                        tmux::send_keys(
+                            &format!("{}:{}", session_name, input),
+                            &["claude", "Enter"],
+                        );
+                        ScreenAction::Switch(SwitchAction::Session {
+                            target: session_name,
+                        })
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Error: {}", e));
+                        ScreenAction::None
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                self.inline_mode = InlineMode::None;
+                ScreenAction::None
+            }
+            _ => {
+                use super::rename::input_handle_key;
+                if let InlineMode::NewTab { input, cursor, .. } = &mut self.inline_mode {
+                    input_handle_key(input, cursor, code, modifiers);
+                }
+                ScreenAction::None
+            }
+        }
+    }
 }
 
 impl ScreenBehavior for SessionListScreen {
@@ -1334,6 +1372,24 @@ impl ScreenBehavior for SessionListScreen {
                 let status = Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::BG));
                 f.render_widget(status, chunks[2]);
             }
+            InlineMode::NewTab { ref input, cursor: cursor_pos, ref session_name, .. } => {
+                let prefix = format!("New tab in '{}': ", session_name);
+                let suffix = "  [enter] create  [esc] cancel";
+
+                let before: String = input.chars().take(*cursor_pos).collect();
+                let cursor_char = input.chars().nth(*cursor_pos).unwrap_or(' ');
+                let after: String = input.chars().skip(*cursor_pos + 1).collect();
+
+                let spans = vec![
+                    Span::styled(&prefix, Style::default().fg(theme::ACCENT)),
+                    Span::styled(&before, Style::default().fg(theme::TEXT)),
+                    Span::styled(cursor_char.to_string(), Style::default().fg(theme::BG).bg(theme::ACCENT)),
+                    Span::styled(&after, Style::default().fg(theme::TEXT)),
+                    Span::styled(suffix, Style::default().fg(theme::TEXT_DIM)),
+                ];
+                let status = Paragraph::new(Line::from(spans)).style(Style::default().bg(theme::BG));
+                f.render_widget(status, chunks[2]);
+            }
             _ => {} // Other modes rendered in later tasks
         }
 
@@ -1379,6 +1435,7 @@ impl ScreenBehavior for SessionListScreen {
             InlineMode::Confirm { .. } => return self.handle_confirm_key(*code, manager),
             InlineMode::Rename { .. } => return self.handle_rename_key(*code, *modifiers, manager),
             InlineMode::Review { .. } => return self.handle_review_key(*code, *modifiers, manager),
+            InlineMode::NewTab { .. } => return self.handle_new_tab_key(*code, *modifiers, manager),
             _ => return ScreenAction::None,
         }
 
@@ -1422,7 +1479,11 @@ impl ScreenBehavior for SessionListScreen {
                 self.handle_collapse(manager);
                 ScreenAction::None
             }
-            KeyCode::Char('n') => self.action_new_picker(manager),
+            KeyCode::Char('n') => {
+                let screen = super::new_session::NewSessionScreen::new(manager);
+                ScreenAction::Push(Screen::NewSession(screen))
+            }
+            KeyCode::Char('t') => self.action_new_tab(manager),
             KeyCode::Char('r') => self.action_rename(manager),
             KeyCode::Char('R') => self.action_review(manager),
             KeyCode::Char('d') => self.action_delete(manager),
@@ -1438,11 +1499,6 @@ impl ScreenBehavior for SessionListScreen {
     fn on_child_result(&mut self, result: ActionResult, manager: &mut Manager) -> ScreenAction {
         let pending = std::mem::replace(&mut self.pending_action, PendingAction::None);
         match pending {
-            PendingAction::NewPicker => {
-                if let ActionResult::MenuPick(key) = result {
-                    return self.handle_new_picked(key, manager);
-                }
-            }
             PendingAction::ActionMenu => {
                 if let ActionResult::MenuPick(key) = result {
                     return self.handle_action_picked(key, manager);
