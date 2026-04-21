@@ -655,19 +655,19 @@ impl Manager {
 
                 // Expected structure: <repo_name>/<branch_name>[/...]
                 let mut components = rel.components();
-                let _repo_name = match components.next() {
+                let repo_name = match components.next() {
                     Some(c) => c.as_os_str().to_string_lossy().to_string(),
                     None => continue,
                 };
-                let _branch_dir = match components.next() {
+                let branch_dir = match components.next() {
                     Some(c) => c.as_os_str().to_string_lossy().to_string(),
                     None => continue,
                 };
 
                 // The worktree path is worktrees_root/<repo>/<branch>
                 let wt_path = worktrees_root
-                    .join(&_repo_name)
-                    .join(&_branch_dir)
+                    .join(&repo_name)
+                    .join(&branch_dir)
                     .to_string_lossy()
                     .to_string();
 
@@ -684,7 +684,7 @@ impl Manager {
                     // Find the repo for this worktree
                     let repos_dir = self.repos_dir();
                     let repo_path_candidate =
-                        repos_dir.join(&_repo_name).to_string_lossy().to_string();
+                        repos_dir.join(&repo_name).to_string_lossy().to_string();
                     let repo = match known_repos.get(&repo_path_candidate) {
                         Some(r) => r,
                         None => continue,
@@ -696,7 +696,7 @@ impl Manager {
                             id: None,
                             repo_id: repo.id.unwrap(),
                             path: wt_path,
-                            branch: _branch_dir,
+                            branch: branch_dir,
                             session_id: session.id,
                             tmux_window: Some(win.index),
                             created_at: utc_now(),

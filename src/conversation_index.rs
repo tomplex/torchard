@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::models::Conversation;
 
-pub fn index_path() -> PathBuf {
+fn index_path() -> PathBuf {
     dirs::home_dir()
         .unwrap()
         .join(".claude")

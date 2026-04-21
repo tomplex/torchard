@@ -138,7 +138,7 @@ impl NewSessionScreen {
         }
     }
 
-    fn go_to_branch_step(&mut self, manager: &Manager) {
+    fn go_to_branch_step(&mut self) {
         self.step = Step::PickBranch;
         self.selected_branch = None;
         self.filter_input.clear();
@@ -160,7 +160,6 @@ impl NewSessionScreen {
         if !self.filtered_branches.is_empty() {
             self.branch_list_state.select(Some(0));
         }
-        let _ = manager; // may be used later
     }
 
     fn advance_after_branch(&mut self, manager: &Manager) -> ScreenAction {
@@ -285,7 +284,7 @@ impl NewSessionScreen {
         let path_s = path.to_string_lossy().to_string();
         self.selected_repo = Some(SelectedRepo { name, path: path_s });
         self.awaiting_repo_path = false;
-        self.go_to_branch_step(manager);
+        self.go_to_branch_step();
         ScreenAction::None
     }
 
@@ -413,7 +412,7 @@ impl NewSessionScreen {
         }
         let (name, path) = self.filtered_dirs[idx].clone();
         self.selected_repo = Some(SelectedRepo { name, path });
-        self.go_to_branch_step(manager);
+        self.go_to_branch_step();
         ScreenAction::None
     }
 
@@ -632,7 +631,7 @@ impl ScreenBehavior for NewSessionScreen {
                         }
                         Step::PickSubsystem => {
                             // Skip back to branch (not name step)
-                            self.go_to_branch_step(manager);
+                            self.go_to_branch_step();
                             return ScreenAction::None;
                         }
                     }

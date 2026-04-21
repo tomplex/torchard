@@ -77,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn json_format_matches_python() {
+    fn json_serialization_format() {
         let session = serde_json::to_string(&SwitchAction::Session {
             target: "test".into(),
         })

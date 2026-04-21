@@ -484,7 +484,6 @@ impl SessionListScreen {
         None
     }
 
-    #[allow(dead_code)] // Used in Task 11 (actions)
     pub fn current_session(&self) -> Option<&SessionInfo> {
         let key = self.current_row_key()?;
         if Self::is_child_row(&key) {
