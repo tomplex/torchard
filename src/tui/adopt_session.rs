@@ -173,12 +173,10 @@ impl AdoptSessionScreen {
 
     fn adopt(&mut self, base_branch: &str, manager: &mut Manager) -> ScreenAction {
         let repo = self.selected_repo.as_ref().unwrap();
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            manager.adopt_session(&self.session_name, &repo.path, base_branch)
-        })) {
+        match manager.adopt_session(&self.session_name, &repo.path, base_branch) {
             Ok(_) => ScreenAction::Pop,
-            Err(_) => {
-                self.error = "Failed to adopt session.".to_string();
+            Err(e) => {
+                self.error = e;
                 ScreenAction::None
             }
         }

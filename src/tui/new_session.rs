@@ -229,12 +229,16 @@ impl NewSessionScreen {
 
         let subdir_ref = subdirectory.as_deref();
 
-        // Try to create
-        // manager.create_session may panic on worktree failures, but we'll just call it
-        manager.create_session(&repo.path, branch, &self.session_name, subdir_ref);
-
-        let _ = tmux::switch_client(&self.session_name);
-        ScreenAction::Quit
+        match manager.create_session(&repo.path, branch, &self.session_name, subdir_ref) {
+            Ok(_) => {
+                let _ = tmux::switch_client(&self.session_name);
+                ScreenAction::Quit
+            }
+            Err(e) => {
+                self.error = e;
+                ScreenAction::None
+            }
+        }
     }
 
     // ------------------------------------------------------------------

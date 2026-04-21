@@ -190,9 +190,18 @@ pub fn get_pr_branch(repo_path: &str, pr_number: i64) -> Result<String, GitError
     Ok(branch)
 }
 
-pub fn fetch_and_pull(repo_path: &str, branch: &str) {
-    run(&["fetch", "origin"], Some(repo_path));
-    run(&["pull", "origin", branch], Some(repo_path));
+pub fn fetch_and_pull(repo_path: &str, branch: &str) -> Result<(), GitError> {
+    let fetch = run(&["fetch", "origin"], Some(repo_path));
+    if !fetch.status.success() {
+        let stderr = String::from_utf8_lossy(&fetch.stderr).trim().to_string();
+        return Err(GitError(format!("git fetch failed: {}", stderr)));
+    }
+    let pull = run(&["pull", "origin", branch], Some(repo_path));
+    if !pull.status.success() {
+        let stderr = String::from_utf8_lossy(&pull.stderr).trim().to_string();
+        return Err(GitError(format!("git pull failed: {}", stderr)));
+    }
+    Ok(())
 }
 
 pub fn fetch_branch(repo_path: &str, branch: &str) {

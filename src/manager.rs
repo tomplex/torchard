@@ -162,23 +162,23 @@ impl Manager {
         base_branch: &str,
         session_name: &str,
         subdirectory: Option<&str>,
-    ) -> Session {
+    ) -> Result<Session, String> {
         let repo = self.get_or_create_repo(repo_path);
 
         let default = &repo.default_branch;
         let start_dir = if base_branch == default {
             repo_path.to_string()
         } else {
-            // Fetch latest before creating worktree
-            git::fetch_and_pull(repo_path, default);
+            // Fetch latest before creating worktree (non-fatal — stale state is acceptable)
+            let _ = git::fetch_and_pull(repo_path, default);
 
             let wt_path = self.worktree_path(&repo.name, base_branch);
             match git::create_worktree(repo_path, &wt_path, base_branch, default) {
                 Ok(()) => {}
-                Err(_) => {
+                Err(e) => {
                     // Branch/worktree may already exist - use it if the dir is there
                     if !Path::new(&wt_path).exists() {
-                        panic!("Worktree creation failed and path does not exist");
+                        return Err(format!("Worktree creation failed: {}", e));
                     }
                 }
             }
@@ -221,7 +221,7 @@ impl Manager {
             );
         }
 
-        session
+        Ok(session)
     }
 
     /// Adopt an existing tmux session into trellis's management.
@@ -230,10 +230,10 @@ impl Manager {
         session_name: &str,
         repo_path: &str,
         base_branch: &str,
-    ) -> Session {
+    ) -> Result<Session, String> {
         let repo = self.get_or_create_repo(repo_path);
 
-        db::add_session(
+        Ok(db::add_session(
             &self.conn,
             &Session {
                 id: None,
@@ -243,7 +243,7 @@ impl Manager {
                 created_at: utc_now(),
                 last_selected_at: None,
             },
-        )
+        ))
     }
 
     /// Rename a session in both tmux and the DB.
