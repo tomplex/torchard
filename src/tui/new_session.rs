@@ -134,25 +134,16 @@ impl NewSessionScreen {
     fn go_to_branch_step(&mut self) {
         self.step = Step::PickBranch;
         self.selected_branch = None;
-        self.filter_input.clear();
-        self.filter_cursor = 0;
-        self.error.clear();
-
         let repo = self.selected_repo.as_ref().unwrap();
-        match git::list_branches(&repo.path) {
-            Ok(branches) => {
-                self.branches = branches;
-            }
-            Err(e) => {
-                self.branches = Vec::new();
-                self.error = e.to_string();
-            }
-        }
-        self.filtered_branches = self.branches.clone();
-        self.branch_list_state = ListState::default();
-        if !self.filtered_branches.is_empty() {
-            self.branch_list_state.select(Some(0));
-        }
+        super::wizard_load_branches(
+            &repo.path,
+            &mut self.branches,
+            &mut self.filtered_branches,
+            &mut self.branch_list_state,
+            &mut self.filter_input,
+            &mut self.filter_cursor,
+            &mut self.error,
+        );
     }
 
     fn advance_after_branch(&mut self, manager: &Manager) -> ScreenAction {
@@ -252,36 +243,20 @@ impl NewSessionScreen {
         self.error.clear();
     }
 
-    fn finish_add_repo(&mut self, manager: &Manager) -> ScreenAction {
-        let path_str = self.filter_input.trim().to_string();
-        let path = if path_str.starts_with('~') {
-            let home = dirs::home_dir().unwrap_or_default();
-            home.join(path_str.strip_prefix("~/").unwrap_or(&path_str[1..]))
-        } else {
-            std::path::PathBuf::from(&path_str)
-        };
-        let path = match path.canonicalize() {
-            Ok(p) => p,
-            Err(_) => path,
-        };
-
-        if !path.is_dir() || !path.join(".git").exists() {
-            self.error = format!("'{}' is not a git repository.", path.display());
-            self.awaiting_repo_path = false;
-            self.filter_input.clear();
-            self.filter_cursor = 0;
-            return ScreenAction::None;
+    fn finish_add_repo(&mut self, _manager: &Manager) -> ScreenAction {
+        match super::wizard_validate_repo_path(&self.filter_input) {
+            Ok(repo) => {
+                self.selected_repo = Some(repo);
+                self.awaiting_repo_path = false;
+                self.go_to_branch_step();
+            }
+            Err(e) => {
+                self.error = e;
+                self.awaiting_repo_path = false;
+                self.filter_input.clear();
+                self.filter_cursor = 0;
+            }
         }
-
-        let name = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let path_s = path.to_string_lossy().to_string();
-        self.selected_repo = Some(SelectedRepo { name, path: path_s });
-        self.awaiting_repo_path = false;
-        self.go_to_branch_step();
         ScreenAction::None
     }
 

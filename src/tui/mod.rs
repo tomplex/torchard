@@ -20,6 +20,65 @@ pub struct SelectedRepo {
     pub path: String,
 }
 
+// ---------------------------------------------------------------------------
+// Shared wizard helpers
+// ---------------------------------------------------------------------------
+
+/// Validate a user-entered path as a git repo and return a SelectedRepo.
+pub fn wizard_validate_repo_path(input: &str) -> Result<SelectedRepo, String> {
+    let path_str = input.trim().to_string();
+    let path = if path_str.starts_with('~') {
+        let home = dirs::home_dir().unwrap_or_default();
+        home.join(path_str.strip_prefix("~/").unwrap_or(&path_str[1..]))
+    } else {
+        std::path::PathBuf::from(&path_str)
+    };
+    let path = match path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => path,
+    };
+
+    if !path.is_dir() || !path.join(".git").exists() {
+        return Err(format!("'{}' is not a git repository.", path.display()));
+    }
+
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let path_s = path.to_string_lossy().to_string();
+    Ok(SelectedRepo { name, path: path_s })
+}
+
+/// Load branches for a repo path into the provided state, resetting filter and selection.
+pub fn wizard_load_branches(
+    repo_path: &str,
+    branches: &mut Vec<String>,
+    filtered_branches: &mut Vec<String>,
+    branch_list_state: &mut ratatui::widgets::ListState,
+    filter_input: &mut String,
+    filter_cursor: &mut usize,
+    error: &mut String,
+) {
+    filter_input.clear();
+    *filter_cursor = 0;
+    error.clear();
+
+    match crate::git::list_branches(repo_path) {
+        Ok(b) => *branches = b,
+        Err(e) => {
+            *branches = Vec::new();
+            *error = e.to_string();
+        }
+    }
+    *filtered_branches = branches.clone();
+    *branch_list_state = ratatui::widgets::ListState::default();
+    if !filtered_branches.is_empty() {
+        branch_list_state.select(Some(0));
+    }
+}
+
 use std::time::Duration;
 
 use crossterm::event::{self, Event};
